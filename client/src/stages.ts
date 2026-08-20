@@ -152,6 +152,33 @@ const w2Stage: Stage = {
 };
 
 // ---------------------------------------------------------------------------
+//  W3 — JDBC-Batch-INSERT (batchUpdate in Chunks)
+// ---------------------------------------------------------------------------
+const w3Stage: Stage = {
+  id: 'w3',
+  label: 'W3 — JDBC-Batch',
+  track: 'write',
+  description:
+    'Statt N einzelner INSERTs werden die Zeilen in Chunks als ein JDBC-Batch an die DB geschickt. Das ' +
+    'spart die vielen Round-Trips — der erwartet grosse Sprung gegenueber W2. Nutzt rohes JDBC, weil ' +
+    'Hibernate bei IDENTITY-Schluesseln nicht batchen kann.',
+  run: (ctx) => runBulkWrite('w3', w3Stage.label, '/api/write/w3', ctx.rows, ctx.payloadLength),
+};
+
+// ---------------------------------------------------------------------------
+//  W4 — JDBC-Batch mit reWriteBatchedInserts=true
+// ---------------------------------------------------------------------------
+const w4Stage: Stage = {
+  id: 'w4',
+  label: 'W4 — Batch + reWrite',
+  track: 'write',
+  description:
+    'Wie W3, aber die zweite Verbindung nutzt reWriteBatchedInserts=true: pgjdbc schreibt den Batch in ' +
+    'Multi-Row-INSERTs um (VALUES (..),(..),(..)). Das senkt Parsing- und Protokoll-Overhead noch einmal.',
+  run: (ctx) => runBulkWrite('w4', w4Stage.label, '/api/write/w4', ctx.rows, ctx.payloadLength),
+};
+
+// ---------------------------------------------------------------------------
 //  R0 — Read-Baseline: findAll() -> komplette Tabelle als JSON
 // ---------------------------------------------------------------------------
 const r0Stage: Stage = {
@@ -175,6 +202,8 @@ export const STAGES: Stage[] = [
   w0Stage,
   w1Stage,
   w2Stage,
+  w3Stage,
+  w4Stage,
   r0Stage,
   seedStage,
 ];

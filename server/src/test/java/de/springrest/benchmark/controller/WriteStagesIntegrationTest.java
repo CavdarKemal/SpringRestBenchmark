@@ -66,6 +66,29 @@ class WriteStagesIntegrationTest extends AbstractPostgresIT {
     }
 
     @Test
+    @DisplayName("W3 persistiert alle Zeilen per JDBC-Batch")
+    void w3PersistsAllRows() throws Exception {
+        mockMvc.perform(post("/api/write/w3").contentType(MediaType.APPLICATION_JSON).content(bulkBody(25)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("w3-jdbc-batch"))
+                .andExpect(jsonPath("$.rowsProcessed").value(25));
+
+        assertThat(generator.count()).isEqualTo(25);
+    }
+
+    @Test
+    @DisplayName("W4 persistiert alle Zeilen per Batch mit reWriteBatchedInserts")
+    void w4PersistsAllRows() throws Exception {
+        // Mehr als BATCH_SIZE (1000) erzwingt mehrere Chunks -> prueft die Chunk-Logik.
+        mockMvc.perform(post("/api/write/w4").contentType(MediaType.APPLICATION_JSON).content(bulkBody(1500)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("w4-jdbc-batch-rewrite"))
+                .andExpect(jsonPath("$.rowsProcessed").value(1500));
+
+        assertThat(generator.count()).isEqualTo(1500);
+    }
+
+    @Test
     @DisplayName("Jede Bulk-Stufe leert die Tabelle vorher (fairer Start)")
     void bulkStagesTruncateFirst() throws Exception {
         generator.generate(100, true, 0);
