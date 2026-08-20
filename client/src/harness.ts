@@ -24,6 +24,8 @@ export function parseServerTiming(header: string | null): number {
 /** Rohergebnis einer Messung, bevor daraus ein RunResult gebaut wird. */
 export interface Measurement {
   bytes: number;
+  /** Bytes auf der Leitung (aus 'X-Wire-Bytes'-Header); falls kein Header, gleich bytes. */
+  wireBytes: number;
   totalMillis: number;
   ttfbMillis: number;
   serverMillis: number;
@@ -45,6 +47,8 @@ export async function measure(url: string, init?: RequestInit): Promise<Measurem
   }
 
   const serverMillis = parseServerTiming(response.headers.get('Server-Timing'));
+  // Optionaler Header mit der echten Leitungsgroesse (z. B. bei gzip-Kompression in R4).
+  const wireHeader = response.headers.get('X-Wire-Bytes');
 
   let bytes = 0;
   let firstByteAt = 0;
@@ -75,7 +79,10 @@ export async function measure(url: string, init?: RequestInit): Promise<Measurem
   }
   const bodyText = new TextDecoder().decode(merged);
 
-  return { bytes, totalMillis, ttfbMillis, serverMillis, bodyText };
+  // Ohne expliziten Header entspricht die Leitungsgroesse der gelesenen Body-Groesse.
+  const wireBytes = wireHeader ? parseInt(wireHeader, 10) : bytes;
+
+  return { bytes, wireBytes, totalMillis, ttfbMillis, serverMillis, bodyText };
 }
 
 /** Baut aus einer Messung und Metadaten das finale, anzeigefertige RunResult. */
@@ -89,13 +96,15 @@ export function toRunResult(
 ): RunResult {
   const seconds = m.serverMillis > 0 ? m.serverMillis / 1000 : m.totalMillis / 1000;
   const rowsPerSecond = seconds > 0 ? rows / seconds : 0;
-  const mbPerSecond = seconds > 0 ? m.bytes / (1024 * 1024) / seconds : 0;
+  // Durchsatz auf Basis der tatsaechlich uebertragenen Bytes (Leitung).
+  const mbPerSecond = seconds > 0 ? m.wireBytes / (1024 * 1024) / seconds : 0;
   return {
     stageId,
     label,
     track,
     rows,
     bytes: m.bytes,
+    wireBytes: m.wireBytes,
     totalMillis: m.totalMillis,
     ttfbMillis: m.ttfbMillis,
     serverMillis: m.serverMillis,

@@ -27,10 +27,10 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | Stufe | Technik | Kernmittel | Doku |
 |-------|---------|-----------|------|
 | R0 | Baseline: `findAll()` → volle Entities als JSON | Spring Data JPA | [R0.md](R0.md) ✅ |
-| R1 | DTO-Projektion (nur benötigte Spalten) | JPA/JdbcClient | _offen_ |
+| R1 | DTO-Projektion (nur benötigte Spalten) | Spring JDBC | [R1.md](R1.md) ✅ |
 | R2 | Pagination: Offset → Keyset/Seek | Spring Data Pageable | _offen_ |
 | R3 | Server-seitiges Streaming (NDJSON, Cursor) | StreamingResponseBody | _offen_ |
-| R4 | HTTP-Kompression (gzip) | Servlet-Kompression | _offen_ |
+| R4 | HTTP-Kompression (gzip) | manuelle gzip-Kompression | [R4.md](R4.md) ✅ |
 | R5 | Caching | Spring Cache + Caffeine | _offen_ |
 | R6 | Async/Parallel-Queries | Virtual Threads | _offen_ |
 | R7 | Binärformat statt JSON | Protobuf/MessagePack | _offen_ |

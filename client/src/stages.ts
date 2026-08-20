@@ -62,6 +62,16 @@ async function runBulkWrite(
   return toRunResult(id, label, 'write', env.rowsProcessed, { ...m, serverMillis: env.serverMillis }, env.note);
 }
 
+/**
+ * Gemeinsamer Ablauf fuer einfache Read-Stufen (R0/R1/R4...): GET, Bytes/TTFB messen, Zeilen aus dem
+ * JSON-Array ableiten. Die Leitungsgroesse (wireBytes) kommt automatisch aus dem X-Wire-Bytes-Header.
+ */
+async function runRead(id: string, label: string, url: string, note: string): Promise<RunResult> {
+  const m = await measure(url, { method: 'GET' });
+  const rows = m.bodyText ? (JSON.parse(m.bodyText) as unknown[]).length : 0;
+  return toRunResult(id, label, 'read', rows, m, note);
+}
+
 // ---------------------------------------------------------------------------
 //  Seed (Infrastruktur) — baut den Datenbestand auf
 // ---------------------------------------------------------------------------
@@ -118,6 +128,7 @@ const w0Stage: Stage = {
     // deshalb wird der Durchsatz aus der clientseitigen Gesamtzeit bestimmt.
     const m: Measurement = {
       bytes: bodyBytes * count,
+      wireBytes: bodyBytes * count,
       totalMillis,
       ttfbMillis: firstDoneAt > 0 ? firstDoneAt - t0 : totalMillis,
       serverMillis: 0,
@@ -256,6 +267,34 @@ const r0Stage: Stage = {
   },
 };
 
+// ---------------------------------------------------------------------------
+//  R1 — DTO-Projektion (nur benoetigte Spalten)
+// ---------------------------------------------------------------------------
+const r1Stage: Stage = {
+  id: 'r1',
+  label: 'R1 — DTO-Projektion',
+  track: 'read',
+  description:
+    'Statt der vollen Entity (R0) liefert der Server ein schlankes DTO mit nur den benoetigten Spalten ' +
+    '(ohne v2..v8, ohne payload). Die Nutzlast schrumpft deutlich — besonders mit payload. Setzt einen ' +
+    'Datenbestand voraus (vorher "Seed", idealerweise mit Payload-Laenge > 0).',
+  run: () => runRead('r1', r1Stage.label, '/api/read/r1', 'nur benoetigte Spalten'),
+};
+
+// ---------------------------------------------------------------------------
+//  R4 — HTTP-Kompression (gzip)
+// ---------------------------------------------------------------------------
+const r4Stage: Stage = {
+  id: 'r4',
+  label: 'R4 — gzip-Kompression',
+  track: 'read',
+  description:
+    'Gleiche Projektionsdaten wie R1, aber gzip-komprimiert uebertragen. Der Browser dekomprimiert ' +
+    'automatisch; die eingesparte Leitungsgroesse zeigt die Spalte "Wire KB" (aus dem X-Wire-Bytes-Header). ' +
+    'JSON komprimiert sehr gut, weil es viel Wiederholung enthaelt.',
+  run: () => runRead('r4', r4Stage.label, '/api/read/r4', 'gzip-komprimiert'),
+};
+
 /** Alle registrierten Stufen. Reihenfolge = Anzeigereihenfolge im Dashboard. */
 export const STAGES: Stage[] = [
   w0Stage,
@@ -268,5 +307,7 @@ export const STAGES: Stage[] = [
   w7Stage,
   w8Stage,
   r0Stage,
+  r1Stage,
+  r4Stage,
   seedStage,
 ];

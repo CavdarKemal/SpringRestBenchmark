@@ -6,7 +6,10 @@ export interface RunResult {
   label: string;
   track: 'read' | 'write';
   rows: number;
+  /** Vom Client gelesene (ggf. dekomprimierte) Body-Groesse in Bytes. */
   bytes: number;
+  /** Tatsaechlich uebertragene Bytes auf der Leitung (aus 'X-Wire-Bytes'); bei R4 << bytes. */
+  wireBytes: number;
   /** Gesamtzeit clientseitig (Wanduhr): Request abschicken bis Antwort vollstaendig. */
   totalMillis: number;
   /** Time-To-First-Byte: bis das erste Byte der Antwort eintrifft (wichtig bei Streaming). */

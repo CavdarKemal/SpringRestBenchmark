@@ -60,7 +60,7 @@ export function ResultsChart({ results, onClear }: Props) {
                 <th>Server ms</th>
                 <th>Gesamt ms</th>
                 <th>TTFB ms</th>
-                <th>KB</th>
+                <th>Wire KB</th>
                 <th>Zeilen/s</th>
                 <th>MB/s</th>
               </tr>
@@ -73,7 +73,7 @@ export function ResultsChart({ results, onClear }: Props) {
                   <td>{fmt(r.serverMillis, 1)}</td>
                   <td>{fmt(r.totalMillis, 1)}</td>
                   <td>{fmt(r.ttfbMillis, 1)}</td>
-                  <td>{fmt(r.bytes / 1024, 1)}</td>
+                  <td>{fmt(r.wireBytes / 1024, 1)}</td>
                   <td>{fmt(r.rowsPerSecond)}</td>
                   <td>{fmt(r.mbPerSecond, 2)}</td>
                 </tr>
