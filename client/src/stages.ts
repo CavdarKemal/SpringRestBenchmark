@@ -28,6 +28,37 @@ interface BenchmarkEnvelope {
  */
 const W0_MAX_ROWS = 2000;
 
+/** Obergrenze fuer W1: N Einzel-Commits sind langsam; fuer die Lektion reichen 20 000. */
+const W1_MAX_ROWS = 20_000;
+
+/**
+ * Gemeinsamer Ablauf fuer Bulk-Write-Stufen (W1..W6): baut N Zeilen im Client, schickt
+ * sie in EINEM Request und liest die reine Server-Insert-Zeit aus dem Envelope.
+ *
+ * @param maxRows optionale Obergrenze fuer diese Stufe (z. B. bei sehr langsamen Stufen)
+ */
+async function runBulkWrite(
+  id: string,
+  label: string,
+  url: string,
+  rows: number,
+  payloadLength: number,
+  maxRows?: number,
+): Promise<RunResult> {
+  const count = maxRows ? Math.min(rows, maxRows) : rows;
+  const payload = Array.from({ length: count }, () => makeRow(payloadLength));
+  const body = JSON.stringify(payload);
+
+  const m = await measure(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+  const env = JSON.parse(m.bodyText) as BenchmarkEnvelope;
+  // Fuer Write-Stufen ist die Serverzeit aus dem Envelope massgeblich (ohne Upload/Parse).
+  return toRunResult(id, label, 'write', env.rowsProcessed, { ...m, serverMillis: env.serverMillis }, env.note);
+}
+
 // ---------------------------------------------------------------------------
 //  Seed (Infrastruktur) — baut den Datenbestand auf
 // ---------------------------------------------------------------------------
@@ -36,9 +67,8 @@ const seedStage: Stage = {
   label: 'Seed (JDBC-Batch)',
   track: 'write',
   description:
-    'Baut den Testdatenbestand auf. Nutzt bereits JDBC-Batch-Inserts. Dient als ' +
-    'Referenz fuer das Mess-Harness; die schrittweise Entwicklung dieser Technik ist ' +
-    'Thema der Write-Stufen W0..W3.',
+    'Baut den Testdatenbestand auf. Nutzt bereits JDBC-Batch-Inserts. Dient als Referenz fuer das ' +
+    'Mess-Harness; die schrittweise Entwicklung dieser Technik ist Thema der Write-Stufen W0..W3.',
   async run(ctx): Promise<RunResult> {
     const url = `/api/data/generate?rows=${ctx.rows}&clear=true&payloadLength=${ctx.payloadLength}`;
     const m = await measure(url, { method: 'POST' });
@@ -56,10 +86,9 @@ const w0Stage: Stage = {
   label: 'W0 — 1 Request/Zeile',
   track: 'write',
   description:
-    'Die naive Referenz: Der Client sendet fuer JEDE Zeile einen eigenen HTTP-Request, ' +
-    'der Server speichert sie einzeln (save() + Autocommit). Hier dominiert der ' +
-    `HTTP-Overhead. Auf ${W0_MAX_ROWS} Zeilen begrenzt, weil per-Zeile-HTTP sonst ` +
-    'unpraktisch lange dauert.',
+    'Die naive Referenz: Der Client sendet fuer JEDE Zeile einen eigenen HTTP-Request, der Server ' +
+    `speichert sie einzeln (save() + Autocommit). Hier dominiert der HTTP-Overhead. Auf ${W0_MAX_ROWS} ` +
+    'Zeilen begrenzt, weil per-Zeile-HTTP sonst unpraktisch lange dauert.',
   async run(ctx): Promise<RunResult> {
     const count = Math.min(ctx.rows, W0_MAX_ROWS);
     const body = JSON.stringify(makeRow(ctx.payloadLength));
@@ -91,9 +120,35 @@ const w0Stage: Stage = {
       serverMillis: 0,
       bodyText: '',
     };
-    return toRunResult('w0', w0Stage.label, 'write', count, m,
-      `per-Zeile-HTTP, ${count} Zeilen (Cap ${W0_MAX_ROWS})`);
+    return toRunResult('w0', w0Stage.label, 'write', count, m, `per-Zeile-HTTP, ${count} Zeilen (Cap ${W0_MAX_ROWS})`);
   },
+};
+
+// ---------------------------------------------------------------------------
+//  W1 — Bulk-Payload, Einzel-INSERT, Autocommit pro Zeile
+// ---------------------------------------------------------------------------
+const w1Stage: Stage = {
+  id: 'w1',
+  label: 'W1 — Bulk, Einzel-Commit',
+  track: 'write',
+  description:
+    'Alle Zeilen in EINEM Request, aber der Server speichert sie einzeln mit je eigenem Commit. Der ' +
+    'HTTP-Overhead aus W0 ist weg — trotzdem kaum schneller, weil die vielen Commits (fsync!) dominieren. ' +
+    `Auf ${W1_MAX_ROWS} Zeilen begrenzt.`,
+  run: (ctx) => runBulkWrite('w1', w1Stage.label, '/api/write/w1', ctx.rows, ctx.payloadLength, W1_MAX_ROWS),
+};
+
+// ---------------------------------------------------------------------------
+//  W2 — Alles in EINER Transaktion (ein Commit)
+// ---------------------------------------------------------------------------
+const w2Stage: Stage = {
+  id: 'w2',
+  label: 'W2 — Eine Transaktion',
+  track: 'write',
+  description:
+    'Gleiche zeilenweise INSERTs wie W1, aber alle in EINER Transaktion — also nur EIN Commit statt N. ' +
+    'Das ist der erste grosse Sprung: Nicht die INSERTs, sondern die vielen Commits waren der Flaschenhals.',
+  run: (ctx) => runBulkWrite('w2', w2Stage.label, '/api/write/w2', ctx.rows, ctx.payloadLength),
 };
 
 // ---------------------------------------------------------------------------
@@ -104,21 +159,22 @@ const r0Stage: Stage = {
   label: 'R0 — findAll() komplett',
   track: 'read',
   description:
-    'Die naive Referenz: Der Server laedt die komplette Tabelle als Entity-Liste und ' +
-    'serialisiert sie als ein grosses JSON-Array. Alles landet im Speicher, das erste ' +
-    'Byte kommt erst spaet (hohe TTFB). Setzt einen Datenbestand voraus (vorher "Seed").',
+    'Die naive Referenz: Der Server laedt die komplette Tabelle als Entity-Liste und serialisiert sie ' +
+    'als ein grosses JSON-Array. Alles landet im Speicher, das erste Byte kommt erst spaet (hohe TTFB). ' +
+    'Setzt einen Datenbestand voraus (vorher "Seed").',
   async run(): Promise<RunResult> {
     const m = await measure('/api/read/r0', { method: 'GET' });
     // Zeilen aus der Antwort ableiten (das Parsen der grossen JSON ist Teil der Kosten).
     const rows = m.bodyText ? (JSON.parse(m.bodyText) as unknown[]).length : 0;
-    return toRunResult('r0', r0Stage.label, 'read', rows, m,
-      'volle Entities, ein JSON-Array');
+    return toRunResult('r0', r0Stage.label, 'read', rows, m, 'volle Entities, ein JSON-Array');
   },
 };
 
 /** Alle registrierten Stufen. Reihenfolge = Anzeigereihenfolge im Dashboard. */
 export const STAGES: Stage[] = [
   w0Stage,
+  w1Stage,
+  w2Stage,
   r0Stage,
   seedStage,
 ];

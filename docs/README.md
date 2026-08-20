@@ -9,14 +9,18 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | Stufe | Technik | Kernmittel | Doku |
 |-------|---------|-----------|------|
 | W0 | Baseline: 1 HTTP-Request pro Zeile, `save()`, Autocommit | Spring Data JPA | [W0.md](W0.md) ✅ |
-| W1 | Bulk-Payload: N Zeilen pro Request, weiter Einzel-INSERT | Spring MVC | _offen_ |
-| W2 | Connection-Pool-Tuning | HikariCP | _offen_ |
-| W3 | JDBC-Batch-INSERT + `reWriteBatchedInserts` | JdbcClient / Hibernate batch | _offen_ |
-| W4 | Transaktions-/Commit-Batching | `@Transactional` | _offen_ |
+| W1 | Bulk-Payload: N Zeilen pro Request, weiter Einzel-INSERT (Autocommit) | Spring MVC / JPA | [W1.md](W1.md) ✅ |
+| W2 | Alle Zeilen in EINER Transaktion (1 Commit) | `@Transactional` | [W2.md](W2.md) ✅ |
+| W3 | JDBC-Batch-INSERT (`batchUpdate`) | Spring JDBC | _offen_ |
+| W4 | Batch + `reWriteBatchedInserts=true` | pgjdbc | _offen_ |
 | W5 | Chunk-orientierter Import | Spring Batch | _offen_ |
 | W6 | Bulk-Load per `COPY` | pgjdbc CopyManager | _offen_ |
-| W7 | Parallel-Ingest | Virtual Threads | _offen_ |
+| W7 | Parallel-Ingest + Pool-Sizing | Virtual Threads + HikariCP | _offen_ |
 | W8 | Reactive Ingest mit Backpressure | WebFlux + R2DBC | _offen_ |
+
+> Reihenfolge gegenüber dem ursprünglichen Plan leicht verfeinert, damit jede Stufe einen
+> messbaren Effekt zeigt (Transaktionsgrenze vor Pool-Tuning; Pool-Sizing dort, wo unter
+> Nebenläufigkeit wirksam — W7). Alle geplanten Techniken bleiben enthalten.
 
 ## Read-Track — Query (DB → Server → Client)
 
