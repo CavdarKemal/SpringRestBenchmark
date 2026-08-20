@@ -76,6 +76,14 @@ cit 21          # baut den Server inkl. aller Tests (JDK 21 + Maven 4)
   einen Test.
 - Voraussetzung: Docker muss laufen (Testcontainers zieht `postgres:16`).
 
+## Lehrmaterial
+
+- **Präsentation:** [docs/slides.md](docs/slides.md) — Marp-kompatible Folien
+  (Export z. B. `marp docs/slides.md --pdf`).
+- **Aufgaben für Studenten:** [docs/AUFGABEN.md](docs/AUFGABEN.md) — gestufte Übungen
+  (Vorhersagen, Experimente, Erweiterungen, Quiz).
+- **Stufen-Doku:** [docs/README.md](docs/README.md) mit `docs/W0–W8.md` und `docs/R0–R8.md`.
+
 ## Lasttests (Mehr-Nutzer)
 
 Die Client-Messungen sind Einzel-Nutzer-Messungen. Für **nebenläufige** Last (viele
