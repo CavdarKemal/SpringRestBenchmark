@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +30,9 @@ class WriteStagesIntegrationTest extends AbstractPostgresIT {
 
     @Autowired
     DataGeneratorService generator;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
 
     /** Baut einen JSON-Array-Body mit {@code n} Zeilen. */
     private static String bulkBody(int n) {
@@ -86,6 +90,32 @@ class WriteStagesIntegrationTest extends AbstractPostgresIT {
                 .andExpect(jsonPath("$.rowsProcessed").value(1500));
 
         assertThat(generator.count()).isEqualTo(1500);
+    }
+
+    @Test
+    @DisplayName("W6 laedt alle Zeilen per Postgres COPY")
+    void w6PersistsAllRows() throws Exception {
+        mockMvc.perform(post("/api/write/w6").contentType(MediaType.APPLICATION_JSON).content(bulkBody(1500)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("w6-copy"))
+                .andExpect(jsonPath("$.rowsProcessed").value(1500));
+
+        assertThat(generator.count()).isEqualTo(1500);
+    }
+
+    @Test
+    @DisplayName("W6 setzt fehlendes payload korrekt auf NULL (CSV-Leerfeld)")
+    void w6NullPayloadBecomesNull() throws Exception {
+        String body = """
+                [{"ts":null,"sensorId":1,"category":"TEMP",
+                  "v1":1,"v2":2,"v3":3,"v4":4,"v5":5,"v6":6,"v7":7,"v8":8,"payload":null}]
+                """;
+        mockMvc.perform(post("/api/write/w6").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk());
+
+        Long nullCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM measurements WHERE payload IS NULL", Long.class);
+        assertThat(nullCount).isEqualTo(1);
     }
 
     @Test

@@ -3,11 +3,18 @@ package de.springrest.benchmark.service;
 import de.springrest.benchmark.dto.MeasurementRequest;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
+import org.postgresql.PGConnection;
+import org.postgresql.copy.CopyManager;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.sql.DataSource;
+import java.io.IOException;
+import java.io.StringReader;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.OffsetDateTime;
@@ -114,6 +121,47 @@ public class WriteService {
      */
     public int w4JdbcBatchRewrite(List<MeasurementRequest> rows) {
         return batchInsert(rewriteJdbcTemplate, rows);
+    }
+
+    /**
+     * <strong>W6 — Postgres COPY.</strong> Nutzt den nativen Bulk-Load-Pfad von PostgreSQL (Protokoll
+     * {@code COPY ... FROM STDIN}) ueber den pgjdbc-{@link CopyManager}. Das ist der schnellste Weg,
+     * grosse Datenmengen zu laden: Die DB umgeht den regulaeren, pro-Zeile geplanten INSERT-Pfad.
+     */
+    public int w6Copy(List<MeasurementRequest> rows) {
+        DataSource dataSource = jdbcTemplate.getDataSource();
+        if (dataSource == null) {
+            throw new IllegalStateException("Keine DataSource verfuegbar");
+        }
+        String sql = "COPY measurements (ts, sensor_id, category, v1, v2, v3, v4, v5, v6, v7, v8, payload) "
+                + "FROM STDIN WITH (FORMAT csv)";
+        try (Connection connection = dataSource.getConnection()) {
+            CopyManager copyManager = connection.unwrap(PGConnection.class).getCopyAPI();
+            long copied = copyManager.copyIn(sql, new StringReader(toCsv(rows)));
+            return (int) copied;
+        } catch (SQLException | IOException e) {
+            throw new IllegalStateException("COPY fehlgeschlagen", e);
+        }
+    }
+
+    /**
+     * Baut den CSV-Text fuer COPY. Unsere Daten enthalten keine Sonderzeichen (Kategorie aus fester Liste,
+     * Payload nur Kleinbuchstaben), daher ist kein CSV-Escaping noetig. Ein leeres Feld bedeutet im
+     * CSV-Modus {@code NULL} — genau richtig fuer ein fehlendes payload.
+     */
+    private String toCsv(List<MeasurementRequest> rows) {
+        StringBuilder sb = new StringBuilder(rows.size() * 96);
+        for (MeasurementRequest r : rows) {
+            OffsetDateTime ts = r.ts() != null ? r.ts() : OffsetDateTime.now(ZoneOffset.UTC);
+            sb.append(ts).append(',').append(r.sensorId()).append(',').append(r.category()).append(',')
+              .append(r.v1()).append(',').append(r.v2()).append(',').append(r.v3()).append(',').append(r.v4()).append(',')
+              .append(r.v5()).append(',').append(r.v6()).append(',').append(r.v7()).append(',').append(r.v8()).append(',');
+            if (r.payload() != null) {
+                sb.append(r.payload());
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
     }
 
     /** Gemeinsame Batch-Insert-Logik fuer W3/W4; unterscheidet sich nur im verwendeten JdbcTemplate. */

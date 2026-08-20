@@ -87,6 +87,18 @@ public class WriteController {
         return BenchmarkResult.of("w4-jdbc-batch-rewrite", count, millis, count + " Zeilen, reWriteBatchedInserts=true");
     }
 
+    /**
+     * <strong>W6 — Postgres COPY.</strong> Nativer Bulk-Load ueber den pgjdbc-CopyManager — der schnellste Weg.
+     */
+    @PostMapping("/w6")
+    public BenchmarkResult w6(@RequestBody List<MeasurementRequest> rows) {
+        writeService.truncate();
+        long start = System.nanoTime();
+        int count = writeService.w6Copy(rows);
+        double millis = elapsedMillis(start);
+        return BenchmarkResult.of("w6-copy", count, millis, count + " Zeilen via Postgres COPY (CSV)");
+    }
+
     private static double elapsedMillis(long startNanos) {
         return (System.nanoTime() - startNanos) / 1_000_000.0;
     }

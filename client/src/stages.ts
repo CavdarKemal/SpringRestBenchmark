@@ -179,6 +179,19 @@ const w4Stage: Stage = {
 };
 
 // ---------------------------------------------------------------------------
+//  W6 — Postgres COPY (nativer Bulk-Load)
+// ---------------------------------------------------------------------------
+const w6Stage: Stage = {
+  id: 'w6',
+  label: 'W6 — Postgres COPY',
+  track: 'write',
+  description:
+    'Nutzt den nativen Bulk-Load-Pfad von PostgreSQL (COPY ... FROM STDIN) ueber den pgjdbc-CopyManager. ' +
+    'Der schnellste Weg, Massendaten zu laden: Die DB umgeht den regulaeren, pro-Zeile geplanten INSERT-Pfad.',
+  run: (ctx) => runBulkWrite('w6', w6Stage.label, '/api/write/w6', ctx.rows, ctx.payloadLength),
+};
+
+// ---------------------------------------------------------------------------
 //  R0 — Read-Baseline: findAll() -> komplette Tabelle als JSON
 // ---------------------------------------------------------------------------
 const r0Stage: Stage = {
@@ -204,6 +217,7 @@ export const STAGES: Stage[] = [
   w2Stage,
   w3Stage,
   w4Stage,
+  w6Stage,
   r0Stage,
   seedStage,
 ];
