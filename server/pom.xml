@@ -114,6 +114,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- CBOR: kompaktes Binaerformat (Jackson 3) fuer Stufe R7 als Alternative zu JSON. -->
+        <dependency>
+            <groupId>tools.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-cbor</artifactId>
+        </dependency>
+
         <!--
             PostgreSQL-Treiber. Enthält den CopyManager, den die COPY-Stufe (W6) direkt
             verwendet — deshalb compile-scope (nicht nur runtime).

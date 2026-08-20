@@ -33,8 +33,8 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | R4 | HTTP-Kompression (gzip) | manuelle gzip-Kompression | [R4.md](R4.md) ✅ |
 | R5 | Caching | Spring Cache + Caffeine | [R5.md](R5.md) ✅ |
 | R6 | Async/Parallel-Queries | Virtual Threads | [R6.md](R6.md) ✅ |
-| R7 | Binärformat statt JSON | Protobuf/MessagePack | _offen_ |
-| R8 | Reactive End-to-End + SSE | WebFlux + R2DBC | _offen_ |
+| R7 | Binärformat statt JSON | CBOR (Jackson 3) | [R7.md](R7.md) ✅ |
+| R8 | Reactive End-to-End (NDJSON) | R2DBC (Reactor) | [R8.md](R8.md) ✅ |
 
 ## Didaktischer Hinweis
 

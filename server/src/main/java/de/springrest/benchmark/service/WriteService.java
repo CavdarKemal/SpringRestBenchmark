@@ -1,14 +1,11 @@
 package de.springrest.benchmark.service;
 
+import de.springrest.benchmark.common.R2dbcSupport;
 import de.springrest.benchmark.dto.MeasurementRequest;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
-import com.zaxxer.hikari.HikariDataSource;
 import io.r2dbc.pool.ConnectionPool;
-import io.r2dbc.pool.ConnectionPoolConfiguration;
-import io.r2dbc.spi.ConnectionFactories;
 import io.r2dbc.spi.ConnectionFactory;
-import io.r2dbc.spi.ConnectionFactoryOptions;
 import io.r2dbc.spi.Statement;
 import jakarta.annotation.PreDestroy;
 import org.postgresql.PGConnection;
@@ -119,22 +116,7 @@ public class WriteService {
      * So zeigt R2DBC garantiert auf dieselbe Datenbank wie JPA/JDBC — in Produktion wie im Testcontainer.
      */
     private static ConnectionFactory buildConnectionFactory(DataSource dataSource) {
-        HikariDataSource source = (HikariDataSource) dataSource;
-        String jdbcUrl = source.getJdbcUrl();
-        String withoutPrefix = jdbcUrl.substring("jdbc:".length());
-        int queryIndex = withoutPrefix.indexOf('?');
-        if (queryIndex >= 0) {
-            withoutPrefix = withoutPrefix.substring(0, queryIndex);
-        }
-        String r2dbcUrl = "r2dbc:" + withoutPrefix;
-
-        ConnectionFactoryOptions options = ConnectionFactoryOptions.builder()
-                .from(ConnectionFactoryOptions.parse(r2dbcUrl))
-                .option(ConnectionFactoryOptions.USER, source.getUsername())
-                .option(ConnectionFactoryOptions.PASSWORD, source.getPassword())
-                .build();
-        ConnectionFactory base = ConnectionFactories.get(options);
-        return new ConnectionPool(ConnectionPoolConfiguration.builder(base).maxSize(16).build());
+        return R2dbcSupport.pooledConnectionFactory(dataSource, 16, "write-r2dbc-pool");
     }
 
     /** Schliesst den reaktiven Verbindungspool beim Herunterfahren. */

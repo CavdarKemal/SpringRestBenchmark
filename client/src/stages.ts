@@ -7,7 +7,7 @@
 // ============================================================================
 
 import { clearData } from './api';
-import { measure, toRunResult } from './harness';
+import { measure, parseServerTiming, toRunResult } from './harness';
 import { makeRow } from './rows';
 import type { Measurement } from './harness';
 import type { RunResult, Stage } from './types';
@@ -432,6 +432,48 @@ const r6ParStage: Stage = {
   run: () => runR6('r6-par', r6ParStage.label, true),
 };
 
+// ---------------------------------------------------------------------------
+//  R7 — Binaerformat (CBOR) statt JSON
+// ---------------------------------------------------------------------------
+const r7Stage: Stage = {
+  id: 'r7',
+  label: 'R7 — CBOR (binaer)',
+  track: 'read',
+  description:
+    'Dieselben Projektionsdaten wie R1, aber als kompaktes CBOR-Binaerformat statt JSON. Weniger Bytes und ' +
+    'schnellere (De-)Serialisierung. Die Zeilenzahl kommt aus dem X-Rows-Header, damit der Client das ' +
+    'Binaerformat nicht selbst dekodieren muss.',
+  async run(): Promise<RunResult> {
+    const t0 = performance.now();
+    const resp = await fetch('/api/read/r7', { method: 'GET' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} bei /api/read/r7`);
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    const totalMillis = performance.now() - t0;
+    const rows = parseInt(resp.headers.get('X-Rows') ?? '0', 10);
+    const wireBytes = parseInt(resp.headers.get('X-Wire-Bytes') ?? String(buf.byteLength), 10);
+    const serverMillis = parseServerTiming(resp.headers.get('Server-Timing'));
+    const m: Measurement = { bytes: buf.byteLength, wireBytes, totalMillis, ttfbMillis: totalMillis, serverMillis, bodyText: '' };
+    return toRunResult('r7', r7Stage.label, 'read', rows, m, 'CBOR statt JSON');
+  },
+};
+
+// ---------------------------------------------------------------------------
+//  R8 — Reaktives Streaming ueber R2DBC (nicht-blockierend, NDJSON)
+// ---------------------------------------------------------------------------
+const r8Stage: Stage = {
+  id: 'r8',
+  label: 'R8 — R2DBC reaktiv',
+  track: 'read',
+  description:
+    'Der Server liest die Daten reaktiv ueber R2DBC (Flux) und streamt sie als NDJSON. Niedrige TTFB wie R3, ' +
+    'aber vollstaendig nicht-blockierend (R2DBC statt Servlet-Cursor). Abschluss des Read-Tracks.',
+  async run(): Promise<RunResult> {
+    const m = await measure('/api/read/r8', { method: 'GET' });
+    const rows = m.bodyText ? m.bodyText.trim().split('\n').filter(Boolean).length : 0;
+    return toRunResult('r8', r8Stage.label, 'read', rows, m, 'reaktiv, NDJSON-Stream');
+  },
+};
+
 /** Alle registrierten Stufen. Reihenfolge = Anzeigereihenfolge im Dashboard. */
 export const STAGES: Stage[] = [
   w0Stage,
@@ -452,5 +494,7 @@ export const STAGES: Stage[] = [
   r5Stage,
   r6SeqStage,
   r6ParStage,
+  r7Stage,
+  r8Stage,
   seedStage,
 ];

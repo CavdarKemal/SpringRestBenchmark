@@ -1,15 +1,20 @@
 package de.springrest.benchmark.service;
 
+import de.springrest.benchmark.common.R2dbcSupport;
 import de.springrest.benchmark.dto.CategoryStat;
 import de.springrest.benchmark.dto.MeasurementDto;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
+import io.r2dbc.pool.ConnectionPool;
+import io.r2dbc.spi.ConnectionFactory;
+import jakarta.annotation.PreDestroy;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
@@ -49,11 +54,22 @@ public class ReadService {
     private final MeasurementRepository repository;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ConnectionFactory connectionFactory;
 
     public ReadService(MeasurementRepository repository, JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.repository = repository;
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        // R2DBC-ConnectionFactory als privates Feld (nicht als Bean) — siehe R2dbcSupport / Stufe W8.
+        this.connectionFactory = R2dbcSupport.pooledConnectionFactory(jdbcTemplate.getDataSource(), 8, "read-r2dbc-pool");
+    }
+
+    /** Schliesst den reaktiven Lese-Pool beim Herunterfahren. */
+    @PreDestroy
+    public void closeConnectionFactory() {
+        if (connectionFactory instanceof ConnectionPool pool) {
+            pool.dispose();
+        }
     }
 
     /**
@@ -197,5 +213,23 @@ public class ReadService {
                 },
                 part);
         return count != null ? count : 0L;
+    }
+
+    /**
+     * <strong>R8 — Reaktives Streaming (R2DBC).</strong> Liest die Projektion ueber R2DBC als reaktiven
+     * {@code Flux} und gibt ihn direkt an Spring MVC weiter, das die Elemente streamend als NDJSON schreibt.
+     * Wie R3 mit niedriger TTFB, aber vollstaendig nicht-blockierend (R2DBC statt Servlet-Cursor).
+     */
+    public Flux<MeasurementDto> streamReactive() {
+        return Flux.usingWhen(
+                connectionFactory.create(),
+                connection -> Flux.from(connection.createStatement(PROJECTION_SQL).fetchSize(1_000).execute())
+                        .flatMap(result -> result.map((row, metadata) -> new MeasurementDto(
+                                row.get("id", Long.class),
+                                row.get("ts", OffsetDateTime.class),
+                                row.get("sensor_id", Integer.class),
+                                row.get("category", String.class),
+                                row.get("v1", Double.class)))),
+                connection -> connection.close());
     }
 }

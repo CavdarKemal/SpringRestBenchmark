@@ -14,7 +14,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import reactor.core.publisher.Flux;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.dataformat.cbor.CBORMapper;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -33,6 +35,8 @@ public class ReadController {
 
     private final ReadService readService;
     private final ObjectMapper objectMapper;
+    /** Eigener Mapper fuer das CBOR-Binaerformat (R7); Jackson 3 bringt Java-Time-Support eingebaut mit. */
+    private final CBORMapper cborMapper = CBORMapper.builder().build();
 
     public ReadController(ReadService readService, ObjectMapper objectMapper) {
         this.readService = readService;
@@ -132,5 +136,30 @@ public class ReadController {
         double millis = (System.nanoTime() - start) / 1_000_000.0;
         String stage = parallel ? "r6-parallel" : "r6-sequential";
         return BenchmarkResult.of(stage, queries, millis, queries + " Abfragen " + (parallel ? "parallel" : "seriell"));
+    }
+
+    /**
+     * <strong>R7 — Binaerformat (CBOR).</strong> Dieselben Projektionsdaten wie R1, aber als kompaktes
+     * CBOR-Binaerformat statt JSON. Kleiner und schneller zu (de)serialisieren. Zeilenzahl kommt im Header
+     * {@code X-Rows}, damit der Client das Binaerformat nicht selbst dekodieren muss.
+     */
+    @GetMapping(value = "/r7", produces = "application/cbor")
+    public ResponseEntity<byte[]> r7Cbor() {
+        List<MeasurementDto> data = readService.projection();
+        byte[] cbor = cborMapper.writeValueAsBytes(data);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "application/cbor")
+                .header("X-Wire-Bytes", String.valueOf(cbor.length))
+                .header("X-Rows", String.valueOf(data.size()))
+                .body(cbor);
+    }
+
+    /**
+     * <strong>R8 — Reaktives Streaming (R2DBC).</strong> Gibt einen reaktiven {@code Flux} zurueck, den Spring
+     * MVC streamend als NDJSON schreibt. Niedrige TTFB wie R3, aber vollstaendig nicht-blockierend.
+     */
+    @GetMapping(value = "/r8", produces = "application/x-ndjson")
+    public Flux<MeasurementDto> r8Reactive() {
+        return readService.streamReactive();
     }
 }

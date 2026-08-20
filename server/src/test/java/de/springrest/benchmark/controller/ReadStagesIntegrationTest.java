@@ -119,6 +119,37 @@ class ReadStagesIntegrationTest extends AbstractPostgresIT {
                 .andExpect(jsonPath("$.rowsProcessed").value(8));
     }
 
+    @Test
+    @DisplayName("R7 (CBOR) liefert alle Zeilen und weniger Bytes als R1 (JSON)")
+    void r7CborIsSmallerThanJson() throws Exception {
+        MvcResult r7 = mockMvc.perform(get("/api/read/r7"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Rows", "200"))
+                .andReturn();
+        int cborBytes = r7.getResponse().getContentAsByteArray().length;
+
+        int jsonBytes = mockMvc.perform(get("/api/read/r1"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsByteArray().length;
+
+        assertThat(cborBytes).isLessThan(jsonBytes);
+    }
+
+    @Test
+    @DisplayName("R8 streamt alle Zeilen reaktiv (R2DBC) als NDJSON")
+    void r8StreamsReactive() throws Exception {
+        MvcResult started = mockMvc.perform(get("/api/read/r8"))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        String body = mockMvc.perform(asyncDispatch(started))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        long lines = body.lines().filter(line -> !line.isBlank()).count();
+        assertThat(lines).isEqualTo(200);
+    }
+
     private static long totalCount(java.util.List<CategoryStat> stats) {
         return stats.stream().mapToLong(CategoryStat::count).sum();
     }
