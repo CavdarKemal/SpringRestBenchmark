@@ -76,6 +76,13 @@ cit 21          # baut den Server inkl. aller Tests (JDK 21 + Maven 4)
   einen Test.
 - Voraussetzung: Docker muss laufen (Testcontainers zieht `postgres:16`).
 
+## Lasttests (Mehr-Nutzer)
+
+Die Client-Messungen sind Einzel-Nutzer-Messungen. Für **nebenläufige** Last (viele
+gleichzeitige Nutzer, RPS, Latenz-Perzentile) gibt es [k6](https://k6.io)-Skripte unter
+[infra/load/](infra/load/README.md) — für Read- und Write-Last, auch ohne k6-Installation
+per Docker ausführbar.
+
 ## Optimierungs-Roadmap
 
 Siehe [docs/README.md](docs/README.md) für den vollständigen Stufenplan
