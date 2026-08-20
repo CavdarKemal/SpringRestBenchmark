@@ -301,8 +301,12 @@ const r4Stage: Stage = {
 const R2_PAGE_SIZE = 5000;
 
 /** Baut aus reinen Zahlen (ohne Server-Timing) ein Read-RunResult; Durchsatz aus der Gesamtzeit. */
-function toReadResult(id: string, label: string, rows: number, bytes: number, totalMillis: number, note: string): RunResult {
-  const m: Measurement = { bytes, wireBytes: bytes, totalMillis, ttfbMillis: totalMillis, serverMillis: 0, bodyText: '' };
+function toReadResult(
+  id: string, label: string, rows: number, bytes: number, totalMillis: number, note: string,
+): RunResult {
+  const m: Measurement = {
+    bytes, wireBytes: bytes, totalMillis, ttfbMillis: totalMillis, serverMillis: 0, bodyText: '',
+  };
   return toRunResult(id, label, 'read', rows, m, note);
 }
 
@@ -452,7 +456,9 @@ const r7Stage: Stage = {
     const rows = parseInt(resp.headers.get('X-Rows') ?? '0', 10);
     const wireBytes = parseInt(resp.headers.get('X-Wire-Bytes') ?? String(buf.byteLength), 10);
     const serverMillis = parseServerTiming(resp.headers.get('Server-Timing'));
-    const m: Measurement = { bytes: buf.byteLength, wireBytes, totalMillis, ttfbMillis: totalMillis, serverMillis, bodyText: '' };
+    const m: Measurement = {
+      bytes: buf.byteLength, wireBytes, totalMillis, ttfbMillis: totalMillis, serverMillis, bodyText: '',
+    };
     return toRunResult('r7', r7Stage.label, 'read', rows, m, 'CBOR statt JSON');
   },
 };

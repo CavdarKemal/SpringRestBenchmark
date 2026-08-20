@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DataControls } from './components/DataControls';
+import { DataViewer } from './components/DataViewer';
 import { ResultsChart } from './components/ResultsChart';
 import { StageRunner } from './components/StageRunner';
 import type { RunContext, RunResult } from './types';
@@ -32,6 +33,7 @@ export default function App() {
       <DataControls ctx={ctx} onChange={setCtx} refreshSignal={refreshSignal} />
       <StageRunner ctx={ctx} onResult={handleResult} />
       <ResultsChart results={results} onClear={() => setResults([])} />
+      <DataViewer />
 
       <footer>
         <p>

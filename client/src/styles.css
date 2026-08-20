@@ -74,5 +74,36 @@ button.danger { background: #fee2e2; border-color: #fca5a5; color: var(--danger)
 .hint, .error { color: #52606d; }
 .error { color: var(--danger); }
 
+/* Track-Ueberschrift mit „Alle ausfuehren"-Button */
+.track-head { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 8px; }
+.track-head h3 { margin: 0; font-size: 15px; }
+.panel h3 { font-size: 15px; margin: 18px 0 8px; }
+
+/* Virtualisierte Datenliste */
+.viewer {
+  height: 360px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfe;
+  font-size: 12px;
+}
+.viewer-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid #eef2f7;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.viewer-row .c-id { width: 80px; color: #7b8794; }
+.viewer-row .c-cat { width: 90px; font-weight: 600; }
+.viewer-row .c-sensor { width: 60px; color: #52606d; }
+.viewer-row .c-v1 { width: 90px; text-align: right; }
+.viewer-row .c-ts { color: #7b8794; overflow: hidden; text-overflow: ellipsis; }
+
+.results-table td .badge { font-size: 10px; padding: 1px 5px; }
+
 footer { color: #7b8794; font-size: 13px; margin-top: 32px; }
 footer code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; }

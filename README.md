@@ -45,10 +45,13 @@ Der Vite-Dev-Server leitet `/api/*` und `/actuator/*` per Proxy an den Server
 
 ## Bedienung
 
-1. Im Client die **Zeilenzahl** und optional die **Payload-Länge** wählen.
-2. Eine **Stufe** ausführen (Button *Run*).
-3. Ergebnis erscheint als Balken (Zeilen/s) und in der Verlaufstabelle
-   (Serverzeit, Gesamtzeit, TTFB, übertragene Bytes, Durchsatz).
+1. Im Client die **Zeilenzahl** und optional die **Payload-Länge** wählen, dann **Seed** ausführen.
+2. Eine einzelne **Stufe** (Button *Run*) oder einen ganzen Track auf einmal
+   (**▶ Alle Write / Alle Read**) ausführen.
+3. Das **Vergleichs-Dashboard** zeigt zwei Kurven — Write-Durchsatz (Zeilen/s) und
+   Read-Nutzlast (Wire KB) — plus eine Detailtabelle (Serverzeit, TTFB, Bytes, Durchsatz).
+4. Der **Daten-Viewer** unten rendert die Zeilen **virtualisiert** (nur sichtbare im DOM,
+   flüssig auch bei 100 000+ Zeilen) und kann sie per **Streaming** inkrementell einfüllen.
 
 ## Mess-Prinzip
 
@@ -84,4 +87,4 @@ Siehe [docs/README.md](docs/README.md) für den vollständigen Stufenplan
 | **M1** | Baselines R0 + W0 (bewusst naiv) | ✅ fertig |
 | **M2** | Write-Track W1–W8 | ✅ fertig |
 | **M3** | Read-Track R1–R8 | ✅ fertig |
-| **M4** | Client-Rendering + Vergleichs-Dashboard | offen |
+| **M4** | Client-Rendering + Vergleichs-Dashboard | ✅ fertig |

@@ -36,6 +36,16 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | R7 | Binärformat statt JSON | CBOR (Jackson 3) | [R7.md](R7.md) ✅ |
 | R8 | Reactive End-to-End (NDJSON) | R2DBC (Reactor) | [R8.md](R8.md) ✅ |
 
+## Client-Rendering (Bonus) ✅
+
+Auch die Anzeige gehört zum Durchsatz „bis zur Wahrnehmung":
+
+- **Virtualisierte Liste** (TanStack Virtual): nur die sichtbaren Zeilen sind im DOM — flüssig
+  auch bei 100 000+ Zeilen.
+- **Streaming-Render**: Zeilen erscheinen inkrementell, während der NDJSON-Stream (R3) läuft.
+- **Vergleichs-Dashboard**: Write-Durchsatz- und Read-Nutzlast-Kurven, „▶ Alle Write/Read
+  ausführen", Detailtabelle.
+
 ## Didaktischer Hinweis
 
 Die Stufen sind bewusst so gebaut, dass der Durchsatz über den Verlauf **monoton
