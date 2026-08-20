@@ -78,6 +78,9 @@ cit 21          # baut den Server inkl. aller Tests (JDK 21 + Maven 4)
 
 ## Lehrmaterial
 
+- **Handbuch (alles in einem):** [docs/SpringRestBenchmark-Handbuch.pdf](docs/SpringRestBenchmark-Handbuch.pdf)
+  — alle Docs zusammengeführt als PDF (auch als [HTML](docs/handbuch.html)).
+  Regenerieren: siehe [scripts/README.md](scripts/README.md).
 - **Präsentation:** [docs/slides.md](docs/slides.md) — Marp-kompatible Folien
   (Export z. B. `marp docs/slides.md --pdf`).
 - **Aufgaben für Studenten:** [docs/AUFGABEN.md](docs/AUFGABEN.md) — gestufte Übungen

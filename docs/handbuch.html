@@ -1,0 +1,1753 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>SpringRestBenchmark — Handbuch</title><style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; color: #1f2933; line-height: 1.5; font-size: 12px; margin: 0; }
+  @page { size: A4; margin: 16mm; }
+  .title { text-align: center; padding-top: 85mm; page-break-after: always; }
+  .title h1 { font-size: 36px; margin: 0 0 6px; color: #1a3e8c; }
+  .title .sub { color: #52606d; font-size: 15px; margin: 2px 0; }
+  .pagebreak { page-break-before: always; }
+  h1 { font-size: 22px; border-bottom: 2px solid #2563eb; padding-bottom: 4px; color: #1a3e8c; }
+  h2 { font-size: 16px; margin-top: 18px; }
+  h3 { font-size: 13.5px; }
+  h1, h2, h3 { page-break-after: avoid; }
+  p, li { orphans: 2; widows: 2; }
+  code { background: #eef2f7; padding: 1px 4px; border-radius: 3px; font-size: 11px; }
+  pre { background: #f5f7fa; border: 1px solid #d9dee7; border-radius: 6px; padding: 10px; overflow: auto;
+        font-size: 10.5px; page-break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 11px; page-break-inside: avoid; margin: 8px 0; }
+  th, td { border: 1px solid #d9dee7; padding: 4px 7px; text-align: left; }
+  th { background: #eef2f7; }
+  blockquote { border-left: 4px solid #2563eb; margin: 10px 0; padding: 2px 12px; color: #3b4a5a; background: #f7f9fc; }
+  a { color: #2563eb; text-decoration: none; }
+  ul.toc { columns: 2; font-size: 13px; }
+</style></head>
+<body>
+  <section class="title">
+    <h1>SpringRestBenchmark</h1>
+    <p class="sub">Datendurchsatz Schritt für Schritt optimieren</p>
+    <p class="sub">Handbuch — Client ⇄ Spring Boot 4.1 ⇄ PostgreSQL</p>
+  </section>
+  <section class="doc"><h1>Inhalt</h1><ul class="toc"><li>Ueberblick & Setup</li><li>Optimierungs-Roadmap</li><li>W0</li><li>W1</li><li>W2</li><li>W3</li><li>W4</li><li>W5</li><li>W6</li><li>W7</li><li>W8</li><li>R0</li><li>R1</li><li>R2</li><li>R3</li><li>R4</li><li>R5</li><li>R6</li><li>R7</li><li>R8</li><li>Aufgaben fuer Studenten</li></ul></section>
+  <section class="doc"><h1>SpringRestBenchmark</h1>
+<p>Ein <strong>Lehrprojekt</strong> rund um die Frage: <em>Wie holt man den maximalen Datendurchsatz
+zwischen React-Client, Spring-Boot-Server und PostgreSQL heraus?</em></p>
+<p>Das Projekt entwickelt die Antwort <strong>in Stufen</strong>. Jede Stufe demonstriert eine
+Optimierungstechnik, ist als eigener REST-Endpoint umgesetzt, wird im Browser
+gemessen und ausführlich dokumentiert. So wird die Verbesserungskurve unmittelbar
+sichtbar.</p>
+<h2>Architektur</h2>
+<pre><code>client/   React + Vite + TypeScript  — Benchmark-Runner, Recharts-Dashboard
+server/   Spring Boot 4.1 (Java 21)   — ein Endpoint je Optimierungsstufe
+infra/    Docker Compose              — PostgreSQL 16
+docs/     Markdown je Stufe           — ausführliche Erklärungen
+</code></pre>
+<h2>Voraussetzungen</h2>
+<ul>
+<li><strong>JDK 21</strong> (unter <code>C:\Program Files\AdoptOpenJDK\jdk-21</code>)</li>
+<li><strong>Maven 4</strong> (Aufruf über <code>ci 21</code> / <code>cit 21</code>) — ⚠️ <code>ci 11</code> funktioniert <strong>nicht</strong>,
+Spring Boot 4.1 verlangt mindestens JDK 17.</li>
+<li><strong>Docker</strong> (für PostgreSQL)</li>
+<li><strong>Node.js 20+</strong> und npm (für den Client)</li>
+</ul>
+<h2>Schnellstart</h2>
+<pre><code class="language-bash"># 1) Datenbank starten
+docker compose -f infra/docker-compose.yml up -d
+
+# 2) Server bauen und starten
+cit 21                                             # Build inkl. Tests (im Ordner server/)
+java -jar server/target/benchmark-server-0.0.1-SNAPSHOT.jar
+
+# 3) Client starten
+npm install --prefix client
+npm run dev --prefix client                        # http://localhost:5173
+</code></pre>
+<p>Der Vite-Dev-Server leitet <code>/api/*</code> und <code>/actuator/*</code> per Proxy an den Server
+(Port 8080) weiter — es ist also keine CORS-Konfiguration nötig.</p>
+<h2>Bedienung</h2>
+<ol>
+<li>Im Client die <strong>Zeilenzahl</strong> und optional die <strong>Payload-Länge</strong> wählen, dann <strong>Seed</strong> ausführen.</li>
+<li>Eine einzelne <strong>Stufe</strong> (Button <em>Run</em>) oder einen ganzen Track auf einmal
+(<strong>▶ Alle Write / Alle Read</strong>) ausführen.</li>
+<li>Das <strong>Vergleichs-Dashboard</strong> zeigt zwei Kurven — Write-Durchsatz (Zeilen/s) und
+Read-Nutzlast (Wire KB) — plus eine Detailtabelle (Serverzeit, TTFB, Bytes, Durchsatz).</li>
+<li>Der <strong>Daten-Viewer</strong> unten rendert die Zeilen <strong>virtualisiert</strong> (nur sichtbare im DOM,
+flüssig auch bei 100 000+ Zeilen) und kann sie per <strong>Streaming</strong> inkrementell einfüllen.</li>
+</ol>
+<h2>Mess-Prinzip</h2>
+<ul>
+<li>Der Server setzt bei jeder Antwort den Header <code>Server-Timing: app;dur=&lt;ms&gt;</code>
+(reine Serverzeit). Schreibende Stufen liefern zusätzlich einen
+<code>BenchmarkResult</code>-Envelope mit Zeilenzahl und Serverzeit.</li>
+<li>Der Client misst clientseitig Gesamtzeit, Time-To-First-Byte und die tatsächlich
+übertragene Byte-Menge (aus dem Antwort-Stream).</li>
+</ul>
+<h2>Tests</h2>
+<pre><code class="language-bash">cit 21          # baut den Server inkl. aller Tests (JDK 21 + Maven 4)
+</code></pre>
+<ul>
+<li><strong>Unit-Tests</strong> für reine Logik (z. B. Durchsatz-Berechnung) — ohne Spring/DB, blitzschnell.</li>
+<li><strong>Integrationstests</strong> gegen ein <strong>echtes PostgreSQL</strong> via <strong>Testcontainers</strong>: Die Basisklasse
+<code>AbstractPostgresIT</code> startet einmalig einen Container und verdrahtet die DataSource per
+<code>@ServiceConnection</code>; Flyway migriert das echte Schema.</li>
+<li>Konvention: Integrationstests heißen <code>*IntegrationTest</code> (laufen so in der Surefire-<code>test</code>-Phase),
+damit ein einziges <code>cit 21</code> <strong>alle</strong> Tests ausführt. Jede Optimierungsstufe bekommt mindestens
+einen Test.</li>
+<li>Voraussetzung: Docker muss laufen (Testcontainers zieht <code>postgres:16</code>).</li>
+</ul>
+<h2>Lehrmaterial</h2>
+<ul>
+<li><strong>Präsentation:</strong> docs/slides.md — Marp-kompatible Folien
+(Export z. B. <code>marp docs/slides.md --pdf</code>).</li>
+<li><strong>Aufgaben für Studenten:</strong> docs/AUFGABEN.md — gestufte Übungen
+(Vorhersagen, Experimente, Erweiterungen, Quiz).</li>
+<li><strong>Stufen-Doku:</strong> docs/README.md mit <code>docs/W0–W8.md</code> und <code>docs/R0–R8.md</code>.</li>
+</ul>
+<h2>Lasttests (Mehr-Nutzer)</h2>
+<p>Die Client-Messungen sind Einzel-Nutzer-Messungen. Für <strong>nebenläufige</strong> Last (viele
+gleichzeitige Nutzer, RPS, Latenz-Perzentile) gibt es <a href="https://k6.io">k6</a>-Skripte unter
+infra/load/ — für Read- und Write-Last, auch ohne k6-Installation
+per Docker ausführbar.</p>
+<h2>Optimierungs-Roadmap</h2>
+<p>Siehe docs/README.md für den vollständigen Stufenplan
+(Write-Track <strong>W0–W8</strong>, Read-Track <strong>R0–R8</strong>).</p>
+<table>
+<thead>
+<tr>
+<th>Milestone</th>
+<th>Inhalt</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>M0</strong></td>
+<td>Fundament: Infra, Server-Skelett, Mess-Harness, Client</td>
+<td>✅ fertig</td>
+</tr>
+<tr>
+<td><strong>M1</strong></td>
+<td>Baselines R0 + W0 (bewusst naiv)</td>
+<td>✅ fertig</td>
+</tr>
+<tr>
+<td><strong>M2</strong></td>
+<td>Write-Track W1–W8</td>
+<td>✅ fertig</td>
+</tr>
+<tr>
+<td><strong>M3</strong></td>
+<td>Read-Track R1–R8</td>
+<td>✅ fertig</td>
+</tr>
+<tr>
+<td><strong>M4</strong></td>
+<td>Client-Rendering + Vergleichs-Dashboard</td>
+<td>✅ fertig</td>
+</tr>
+</tbody></table>
+</section>
+<section class="doc pagebreak"><h1>Optimierungs-Roadmap</h1>
+<p>Diese Übersicht listet alle geplanten Stufen. Zu jeder umgesetzten Stufe gehört
+eine eigene Markdown-Datei mit: <em>Konzept · Warum schneller · Welches Problem gelöst ·
+Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.</em></p>
+<h2>Write-Track — Ingest (Client → Server → DB)</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Technik</th>
+<th>Kernmittel</th>
+<th>Doku</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W0</td>
+<td>Baseline: 1 HTTP-Request pro Zeile, <code>save()</code>, Autocommit</td>
+<td>Spring Data JPA</td>
+<td>W0.md ✅</td>
+</tr>
+<tr>
+<td>W1</td>
+<td>Bulk-Payload: N Zeilen pro Request, weiter Einzel-INSERT (Autocommit)</td>
+<td>Spring MVC / JPA</td>
+<td>W1.md ✅</td>
+</tr>
+<tr>
+<td>W2</td>
+<td>Alle Zeilen in EINER Transaktion (1 Commit)</td>
+<td><code>@Transactional</code></td>
+<td>W2.md ✅</td>
+</tr>
+<tr>
+<td>W3</td>
+<td>JDBC-Batch-INSERT (<code>batchUpdate</code>)</td>
+<td>Spring JDBC</td>
+<td>W3.md ✅</td>
+</tr>
+<tr>
+<td>W4</td>
+<td>Batch + <code>reWriteBatchedInserts=true</code></td>
+<td>pgjdbc</td>
+<td>W4.md ✅</td>
+</tr>
+<tr>
+<td>W5</td>
+<td>Chunk-orientierter Import</td>
+<td>Spring Batch</td>
+<td>W5.md ✅</td>
+</tr>
+<tr>
+<td>W6</td>
+<td>Bulk-Load per <code>COPY</code></td>
+<td>pgjdbc CopyManager</td>
+<td>W6.md ✅</td>
+</tr>
+<tr>
+<td>W7</td>
+<td>Parallel-Ingest + Pool-Sizing</td>
+<td>Virtual Threads + HikariCP</td>
+<td>W7.md ✅</td>
+</tr>
+<tr>
+<td>W8</td>
+<td>Reactive Ingest mit Backpressure</td>
+<td>R2DBC (Reactor)</td>
+<td>W8.md ✅</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>Reihenfolge gegenüber dem ursprünglichen Plan leicht verfeinert, damit jede Stufe einen
+messbaren Effekt zeigt (Transaktionsgrenze vor Pool-Tuning; Pool-Sizing dort, wo unter
+Nebenläufigkeit wirksam — W7). Alle geplanten Techniken bleiben enthalten.</p>
+</blockquote>
+<h2>Read-Track — Query (DB → Server → Client)</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Technik</th>
+<th>Kernmittel</th>
+<th>Doku</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R0</td>
+<td>Baseline: <code>findAll()</code> → volle Entities als JSON</td>
+<td>Spring Data JPA</td>
+<td>R0.md ✅</td>
+</tr>
+<tr>
+<td>R1</td>
+<td>DTO-Projektion (nur benötigte Spalten)</td>
+<td>Spring JDBC</td>
+<td>R1.md ✅</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>Pagination: Offset → Keyset/Seek</td>
+<td>Spring JDBC</td>
+<td>R2.md ✅</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>Server-seitiges Streaming (NDJSON, Cursor)</td>
+<td>StreamingResponseBody</td>
+<td>R3.md ✅</td>
+</tr>
+<tr>
+<td>R4</td>
+<td>HTTP-Kompression (gzip)</td>
+<td>manuelle gzip-Kompression</td>
+<td>R4.md ✅</td>
+</tr>
+<tr>
+<td>R5</td>
+<td>Caching</td>
+<td>Spring Cache + Caffeine</td>
+<td>R5.md ✅</td>
+</tr>
+<tr>
+<td>R6</td>
+<td>Async/Parallel-Queries</td>
+<td>Virtual Threads</td>
+<td>R6.md ✅</td>
+</tr>
+<tr>
+<td>R7</td>
+<td>Binärformat statt JSON</td>
+<td>CBOR (Jackson 3)</td>
+<td>R7.md ✅</td>
+</tr>
+<tr>
+<td>R8</td>
+<td>Reactive End-to-End (NDJSON)</td>
+<td>R2DBC (Reactor)</td>
+<td>R8.md ✅</td>
+</tr>
+</tbody></table>
+<h2>Client-Rendering (Bonus) ✅</h2>
+<p>Auch die Anzeige gehört zum Durchsatz „bis zur Wahrnehmung&quot;:</p>
+<ul>
+<li><strong>Virtualisierte Liste</strong> (TanStack Virtual): nur die sichtbaren Zeilen sind im DOM — flüssig
+auch bei 100 000+ Zeilen.</li>
+<li><strong>Streaming-Render</strong>: Zeilen erscheinen inkrementell, während der NDJSON-Stream (R3) läuft.</li>
+<li><strong>Vergleichs-Dashboard</strong>: Write-Durchsatz- und Read-Nutzlast-Kurven, „▶ Alle Write/Read
+ausführen&quot;, Detailtabelle.</li>
+</ul>
+<h2>Didaktischer Hinweis</h2>
+<p>Die Stufen sind bewusst so gebaut, dass der Durchsatz über den Verlauf <strong>monoton
+steigt</strong> — mit klar benannten Trade-offs (z. B. Keyset-Pagination verliert die
+Möglichkeit, direkt auf Seite <em>n</em> zu springen). Genau diese Trade-offs sind der
+Lernkern: Es gibt kein „schneller ist immer besser&quot;, sondern „schneller unter
+welchen Bedingungen&quot;.</p>
+</section>
+<section class="doc pagebreak"><h1>W0 — Write-Baseline: ein HTTP-Request pro Zeile</h1>
+<blockquote>
+<p><strong>Track:</strong> Write (Client → Server → DB)
+<strong>Ziel:</strong> Die absichtlich schlechteste sinnvolle Implementierung. Sie liefert die
+Referenzzahl, gegen die alle folgenden Write-Stufen (W1–W8) antreten.</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Der Client möchte <em>N</em> Zeilen in die Datenbank schreiben. In dieser Stufe tut er das
+auf die naheliegendste, aber ineffizienteste Weise:</p>
+<ol>
+<li>Für <strong>jede einzelne Zeile</strong> wird ein <strong>eigener HTTP-Request</strong> abgesetzt.</li>
+<li>Der Server nimmt genau eine Zeile entgegen und speichert sie mit
+<code>repository.save(...)</code>.</li>
+<li>Es gibt <strong>keine explizite Transaktionsklammer</strong> — jeder <code>save()</code>-Aufruf läuft in
+seiner eigenen Transaktion und <strong>committet einzeln</strong>.</li>
+</ol>
+<p>Damit summieren sich gleich <strong>drei</strong> Kostenblöcke, jeweils <em>pro Zeile</em>:</p>
+<table>
+<thead>
+<tr>
+<th>Kostenblock</th>
+<th>Wo?</th>
+<th>Was passiert pro Zeile</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>HTTP-Round-Trip</td>
+<td>Client ↔ Server</td>
+<td>Verbindung, Header, Request/Response</td>
+</tr>
+<tr>
+<td>INSERT</td>
+<td>Server → DB</td>
+<td>ein einzelnes SQL-INSERT über den Pool</td>
+</tr>
+<tr>
+<td>COMMIT</td>
+<td>DB</td>
+<td>ein eigener Transaktions-Commit (fsync!)</td>
+</tr>
+</tbody></table>
+<h2>Warum ist das langsam?</h2>
+<p>Der teuerste versteckte Posten ist oft der <strong>Commit</strong>: PostgreSQL muss bei jedem
+Commit das Write-Ahead-Log dauerhaft auf die Platte schreiben (<code>fsync</code>). Ein Commit
+pro Zeile bedeutet einen <code>fsync</code> pro Zeile. Dazu kommt der <strong>HTTP-Overhead</strong>: Selbst
+über <code>localhost</code> kostet jeder Request Zeit für Auf-/Abbau und Header-Verarbeitung —
+Zeit, in der <em>keine</em> Nutzdaten fließen.</p>
+<p>Das Ergebnis: Der Durchsatz wird nicht von der Datenmenge bestimmt, sondern von der
+<strong>Anzahl der Round-Trips und Commits</strong>.</p>
+<h2>Code-Walkthrough</h2>
+<p><strong>Server</strong> — genau eine Zeile speichern:</p>
+<ul>
+<li><code>controller/WriteController.java</code> → <code>w0SingleRow(...)</code>: nimmt einen einzelnen
+<code>MeasurementRequest</code> per <code>@RequestBody</code> entgegen.</li>
+<li><code>service/WriteService.java</code> → <code>saveOne(...)</code>: ruft <code>repository.save(entity)</code> auf.
+Bewusst <strong>ohne</strong> <code>@Transactional</code>, damit jeder Aufruf einzeln committet.</li>
+</ul>
+<p><strong>Client</strong> — die Schleife (<code>client/src/stages.ts</code>, Stufe <code>w0</code>):</p>
+<pre><code class="language-ts">for (let i = 0; i &lt; count; i++) {
+  const resp = await fetch(&#39;/api/write/w0&#39;, { method: &#39;POST&#39;, body });
+  await resp.arrayBuffer();
+}
+</code></pre>
+<p>Die Zeit wird über die <strong>gesamte Schleife</strong> clientseitig gemessen (Wanduhr), weil es
+keine einzelne „Serverzeit&quot; für den ganzen Vorgang gibt.</p>
+<blockquote>
+<p><strong>Begrenzung:</strong> W0 ist im Client auf <strong>2000 Zeilen</strong> gedeckelt (<code>W0_MAX_ROWS</code>).
+Ein HTTP-Request pro Zeile skaliert so schlecht, dass größere Zahlen den Unterricht
+nur aufhalten. Zum Vergleich zählt ohnehin der <strong>Durchsatz</strong> (Zeilen/s), nicht die
+absolute Zeilenzahl.</p>
+</blockquote>
+<h2>Messung</h2>
+<p>Im Dashboard oben eine kleine Zeilenzahl wählen (z. B. 2000), dann <strong>W0</strong> ausführen.
+Beobachte:</p>
+<ul>
+<li><strong>Zeilen/s</strong>: sehr niedrig — das ist die Referenz.</li>
+<li><strong>TTFB</strong>: Zeit bis zur ersten Antwort (hier wenig aussagekräftig, da viele Requests).</li>
+</ul>
+<p>Typische Größenordnung auf einem Entwickler-Notebook: <strong>wenige Hundert bis wenige
+Tausend Zeilen/s</strong>. Genau diese Zahl macht die späteren Sprünge eindrucksvoll.</p>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Nicht</strong> so etwas in Produktion bauen. W0 existiert nur als Lehr-Referenz.</li>
+<li>Der <code>fsync</code>-pro-Commit-Effekt ist real, aber hardware-abhängig (SSD vs. HDD, WAL-
+Konfiguration). Deshalb sind <strong>relative</strong> Vergleiche aussagekräftiger als absolute.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W1</strong> behält die Einzel-INSERTs bei, sendet aber <strong>alle Zeilen in einem Request</strong> —
+isoliert damit den reinen HTTP-Overhead.</li>
+<li><strong>W3</strong> bündelt die INSERTs zum <strong>JDBC-Batch</strong> — der eigentliche große Sprung.</li>
+<li><strong>W4</strong> fasst alles in <strong>eine Transaktion</strong> — ein Commit statt <em>N</em>.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W1 — Bulk-Payload, aber weiter Einzel-INSERT (Autocommit pro Zeile)</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W0 · <strong>Nachfolger:</strong> W2</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>W1 ändert gegenüber W0 <strong>genau eine</strong> Sache: Statt eines HTTP-Requests pro Zeile schickt
+der Client <strong>alle Zeilen in einem einzigen Request</strong> (ein JSON-Array). Der Server
+speichert sie aber weiterhin <strong>einzeln</strong> mit <code>repository.save(...)</code> — und <strong>ohne</strong>
+gemeinsame Transaktion, also mit <strong>einem Commit pro Zeile</strong>.</p>
+<p>Damit isolieren wir sauber <strong>einen</strong> Kostenfaktor: den <strong>HTTP-Overhead</strong>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>HTTP-Requests</th>
+<th>Transaktionen/Commits</th>
+<th>INSERTs</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W0</td>
+<td>N</td>
+<td>N</td>
+<td>N</td>
+</tr>
+<tr>
+<td><strong>W1</strong></td>
+<td><strong>1</strong></td>
+<td>N</td>
+<td>N</td>
+</tr>
+</tbody></table>
+<h2>Was die Messung zeigt</h2>
+<p>Beispiel-Lauf (2000 Zeilen, lokales Notebook):</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W1</td>
+<td>2000</td>
+<td>17916</td>
+<td><strong>112</strong></td>
+</tr>
+</tbody></table>
+<p><strong>Die entscheidende Erkenntnis:</strong> Der HTTP-Overhead war <em>nicht</em> der Hauptkostentreiber.
+W1 ist gegenüber W0 kaum schneller, weil die <strong>N Commits</strong> (je ein <code>fsync</code> aufs
+Write-Ahead-Log) den Durchsatz bestimmen — und die sind in W1 noch genauso da wie in W0.</p>
+<blockquote>
+<p>Das ist die eigentliche Lehre dieser Stufe: Man optimiert leicht die <em>falsche</em> Sache.
+„Weniger HTTP&quot; klingt gut, bringt hier aber fast nichts. Erst W2 fasst die
+Commits zusammen — und dann springt der Durchsatz.</p>
+</blockquote>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/WriteService.java</code> → <code>w1BulkAutocommit(List&lt;MeasurementRequest&gt;)</code>: Schleife mit
+<code>repository.save(...)</code>. <strong>Kein</strong> <code>@Transactional</code> → jeder <code>save()</code> committet einzeln.</li>
+<li><code>controller/WriteController.java</code> → <code>w1(...)</code>: leert die Tabelle (nicht gemessen),
+misst dann die reine Insert-Zeit und liefert sie im <code>BenchmarkResult</code>-Envelope zurück.</li>
+<li>Client (<code>client/src/stages.ts</code>, <code>runBulkWrite</code>): baut N Zeilen, schickt sie als <strong>ein</strong>
+Array, liest die Serverzeit aus dem Envelope. W1 ist auf <strong>20 000 Zeilen</strong> gedeckelt.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li>Auch hier gilt: nur als Lehr-Stufe gedacht. Per-Zeile-Commit gehört nicht in Produktion.</li>
+<li>Der Effekt (bzw. Nicht-Effekt) hängt stark von der Platte/WAL-Konfiguration ab —
+<strong>relative</strong> Vergleiche sind aussagekräftiger als absolute Zahlen.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W2</strong> legt alle Zeilen in <strong>eine</strong> Transaktion → nur noch ein Commit.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W2 — Alle Zeilen in EINER Transaktion</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W1 · <strong>Nachfolger:</strong> W3</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>W2 ändert gegenüber W1 wieder <strong>genau eine</strong> Sache: Die Insert-Schleife läuft jetzt in
+<strong>einer gemeinsamen Transaktion</strong> (<code>@Transactional</code>). Statt N Commits gibt es <strong>einen</strong>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>HTTP-Requests</th>
+<th>Transaktionen/Commits</th>
+<th>INSERTs</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W1</td>
+<td>1</td>
+<td>N</td>
+<td>N</td>
+</tr>
+<tr>
+<td><strong>W2</strong></td>
+<td>1</td>
+<td><strong>1</strong></td>
+<td>N</td>
+</tr>
+</tbody></table>
+<h2>Was die Messung zeigt</h2>
+<p>Beispiel-Lauf (2000 Zeilen, lokales Notebook):</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+<th>Faktor ggü. W1</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W1</td>
+<td>2000</td>
+<td>17916</td>
+<td>112</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>W2</strong></td>
+<td>2000</td>
+<td>4362</td>
+<td><strong>459</strong></td>
+<td><strong>≈ 4×</strong></td>
+</tr>
+</tbody></table>
+<p><strong>Erkenntnis:</strong> Der große Hebel war das Zusammenfassen der <strong>Commits</strong>, nicht das Bündeln
+der INSERTs. Allein „ein Commit statt N&quot; bringt hier den Faktor ~4.</p>
+<h2>Warum ist W2 <em>absolut</em> immer noch langsam?</h2>
+<p>459 Zeilen/s sind besser, aber weit weg von den späteren Stufen. Grund ist ein bekanntes
+<strong>JPA-Anti-Pattern</strong>: In der einen Transaktion sammelt Hibernate <strong>alle</strong> Entities im
+Persistence-Context. Weil die Entity <code>GenerationType.IDENTITY</code> nutzt, führt jeder
+<code>save()</code> sofort ein INSERT aus — und der wachsende Persistence-Context macht die
+Dirty-Checks zunehmend teurer (Richtung O(n²)), wenn man nicht periodisch
+<code>flush()</code>/<code>clear()</code> aufruft.</p>
+<blockquote>
+<p>Genau deshalb wechseln die nächsten Stufen von JPA auf <strong>rohes JDBC</strong>: Bei
+IDENTITY-Schlüsseln kann Hibernate INSERTs ohnehin nicht als JDBC-Batch bündeln.</p>
+</blockquote>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/WriteService.java</code> → <code>w2SingleTransaction(...)</code>: identische Schleife wie W1,
+aber mit <code>@Transactional</code>. Der externe Aufruf aus dem Controller aktiviert den Proxy,
+sodass die Transaktion die ganze Schleife umschließt und erst am Methodenende committet.</li>
+<li><code>controller/WriteController.java</code> → <code>w2(...)</code>: misst die Zeit inklusive Commit.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li>Eine große Transaktion hält Sperren und Ressourcen länger. Bei sehr vielen Zeilen kann
+ein <strong>Chunk-Commit</strong> (periodisches Committen, siehe W5 / Spring Batch) besser
+sein als „alles oder nichts&quot;.</li>
+<li>Der wachsende Persistence-Context ist ein realer Speicher-/CPU-Kostenpunkt — ein Grund,
+für Massen-Insert nicht JPA, sondern JDBC/COPY zu nutzen.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W3</strong> ersetzt die N Einzel-INSERTs durch <strong>ein <code>JdbcTemplate.batchUpdate</code></strong> →
+weniger Round-Trips zur DB.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W3 — JDBC-Batch-INSERT</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W2 · <strong>Nachfolger:</strong> W4</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Bis W2 wurde jede Zeile mit einem eigenen INSERT an die Datenbank geschickt — also <em>N</em>
+Hin- und Rückwege (Round-Trips) über die Verbindung. W3 bündelt sie: Mit
+<code>JdbcTemplate.batchUpdate(...)</code> werden die Zeilen in <strong>Chunks</strong> (hier je 1000) als <strong>ein
+JDBC-Batch</strong> übertragen. Ein Round-Trip transportiert 1000 INSERTs.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Round-Trips zur DB</th>
+<th>Technik</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W2</td>
+<td>N (ein INSERT pro Zeile)</td>
+<td>JPA <code>save()</code> in einer Transaktion</td>
+</tr>
+<tr>
+<td><strong>W3</strong></td>
+<td><strong>N / 1000</strong> (ein Batch pro Chunk)</td>
+<td>rohes JDBC <code>batchUpdate</code></td>
+</tr>
+</tbody></table>
+<h2>Warum rohes JDBC statt JPA?</h2>
+<p>Die Entity nutzt <code>GenerationType.IDENTITY</code>. Damit muss Hibernate nach <strong>jedem</strong> INSERT
+sofort die generierte <code>id</code> lesen — und kann INSERTs deshalb <strong>nicht</strong> zu einem JDBC-Batch
+zusammenfassen. Wer mit JPA + IDENTITY „batchen&quot; will, bekommt trotzdem <em>N</em> Einzel-INSERTs.
+Deshalb umgehen wir Hibernate hier bewusst und sprechen die DB direkt über <code>JdbcTemplate</code>
+an.</p>
+<h2>Was die Messung zeigt</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+<th>Faktor ggü. W2</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W2</td>
+<td>5000</td>
+<td>10035</td>
+<td>498</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>W3</strong></td>
+<td>100000</td>
+<td>10339</td>
+<td><strong>9 672</strong></td>
+<td><strong>≈ 19×</strong></td>
+</tr>
+</tbody></table>
+<p>Der Sprung ist enorm: Das Bündeln der Round-Trips ist der bislang größte Hebel. W3
+verarbeitet in <em>derselben</em> Zeit rund das 20-fache an Zeilen wie W2.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/WriteService.java</code> → <code>w3JdbcBatch(...)</code> → <code>batchInsert(jdbcTemplate, rows)</code>:
+nutzt die Überladung <code>batchUpdate(sql, rows, BATCH_SIZE, setter)</code>, die die Liste
+automatisch in Chunks von <code>BATCH_SIZE</code> zerlegt und pro Chunk einen Batch schickt.</li>
+<li>Der <code>ParameterizedPreparedStatementSetter</code> setzt die 12 Spaltenwerte je Zeile.</li>
+<li><code>controller/WriteController.java</code> → <code>w3(...)</code>: misst die reine Batch-Zeit.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Chunk-Größe</strong> ist ein Tuning-Parameter: zu klein → mehr Round-Trips; zu groß → mehr
+Treiber-/DB-Speicher pro Batch. 500–2000 ist ein üblicher Startbereich.</li>
+<li>Der Batch umgeht die JPA-Ebene — für reine Massen-Inserts ist das gewollt, man verliert
+aber Entity-Lifecycle, Dirty-Checking etc. (hier irrelevant).</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W4</strong> aktiviert <code>reWriteBatchedInserts=true</code>: pgjdbc formt den Batch in
+<strong>Multi-Row-INSERTs</strong> um und wird dadurch nochmals deutlich schneller.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W4 — JDBC-Batch mit <code>reWriteBatchedInserts=true</code></h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W3 · <strong>Nachfolger:</strong> W5</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>W4 ändert gegenüber W3 <strong>nur eine Verbindungseinstellung</strong>: den pgjdbc-Parameter
+<code>reWriteBatchedInserts=true</code>. Damit erkennt der Treiber, dass ein Batch aus lauter
+gleichartigen INSERTs besteht, und <strong>schreibt ihn in ein Multi-Row-INSERT um</strong>:</p>
+<pre><code class="language-sql">-- statt 1000× &quot;INSERT INTO measurements (...) VALUES (?, ...)&quot;
+INSERT INTO measurements (...) VALUES (?, ...), (?, ...), (?, ...), ...   -- 1000 Tupel
+</code></pre>
+<p>Ein einziges Statement statt 1000 — das spart Parsing- und Protokoll-Overhead auf der
+DB-Seite erheblich.</p>
+<h2>Was die Messung zeigt</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+<th>Faktor ggü. W3</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W3</td>
+<td>100000</td>
+<td>10339</td>
+<td>9 672</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>W4</strong></td>
+<td>100000</td>
+<td>2664</td>
+<td><strong>37 541</strong></td>
+<td><strong>≈ 3,9×</strong></td>
+</tr>
+</tbody></table>
+<p>Gegenüber der Transaktions-Stufe W2 (498 Zeilen/s) ist W4 rund <strong>75× schneller</strong> —
+allein durch bessere Insert-Technik, ohne Parallelität.</p>
+<h2>Code-Walkthrough — die zweite Verbindung</h2>
+<p><code>reWriteBatchedInserts</code> ist eine <strong>Verbindungseigenschaft</strong> und muss beim Aufbau der
+Connection gesetzt sein; man kann sie nicht pro Statement umschalten. Damit W3 und W4
+denselben Code, aber unterschiedliche Verbindungen nutzen, gibt es zwei <code>JdbcTemplate</code>s:</p>
+<ul>
+<li><code>config/BatchDataSourceConfig.java</code>:<ul>
+<li><code>jdbcTemplate</code> (<code>@Primary</code>) → Boots normale DataSource (ohne den Parameter) → W3.</li>
+<li><code>rewriteJdbcTemplate</code> → zweite Verbindung mit <code>reWriteBatchedInserts=true</code> → W4.
+Die zweite Verbindung wird <strong>aus der primären DataSource abgeleitet</strong> (gleiche
+URL/Zugangsdaten, nur um den Parameter ergänzt). So funktioniert sie unverändert auch
+in den Integrationstests, wo die DataSource per <code>@ServiceConnection</code> auf einen
+Testcontainer zeigt.</li>
+</ul>
+</li>
+<li><code>service/WriteService.java</code> → <code>w4JdbcBatchRewrite(...)</code> ruft dieselbe <code>batchInsert(...)</code>
+auf, nur mit dem <code>rewriteJdbcTemplate</code>.</li>
+</ul>
+<blockquote>
+<p>Bewusste Vereinfachung: Die zweite DataSource wird <strong>nicht</strong> als Spring-Bean exponiert,
+damit Boots JPA-/Flyway-Autokonfiguration (die eine eindeutige DataSource erwartet) nicht
+gestört wird.</p>
+</blockquote>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><code>reWriteBatchedInserts</code> wirkt nur bei <strong>einfachen</strong> <code>INSERT ... VALUES</code>-Statements (kein
+<code>ON CONFLICT</code>-Sonderfall etc.). Für unseren Fall ideal.</li>
+<li>Sehr große umgeschriebene Statements können Grenzen für Parameteranzahl/Statementgröße
+treffen — die Chunk-Größe (1000) hält das im Rahmen.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W5</strong> zeigt dieselbe Batch-Idee mit <strong>Spring Batch</strong> (chunk-orientiert,
+restartfähig) — wenn nicht nur roher Durchsatz, sondern auch Robustheit zählt.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W5 — Spring Batch (chunk-orientierter Import)</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W4 · <strong>Nachfolger:</strong> W6</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Bis hierher haben wir Durchsatz durch bessere <em>Insert-Technik</em> gewonnen. W5 wechselt die
+Perspektive: Es nutzt <strong>Spring Batch</strong> — ein Framework für robuste Massenverarbeitung. Die
+Zeilen laufen durch einen echten <strong>Job</strong> mit einem <strong>chunk-orientierten Step</strong>:</p>
+<pre><code>ListItemReader  ──►  (optional Processor)  ──►  JdbcBatchItemWriter
+        \___________________ Chunk (1000) ___________________/
+                     nach jedem Chunk: Commit
+</code></pre>
+<p>Nach jedem Chunk committet Spring Batch und schreibt den Fortschritt in seine
+<strong>Metadatentabellen</strong> (<code>BATCH_JOB_EXECUTION</code>, <code>BATCH_STEP_EXECUTION</code>, …).</p>
+<h2>Was die Messung zeigt</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W3 (JDBC-Batch)</td>
+<td>100000</td>
+<td>~6600</td>
+<td>~15 000</td>
+</tr>
+<tr>
+<td><strong>W5 (Spring Batch)</strong></td>
+<td>100000</td>
+<td>~4500</td>
+<td><strong>~22 000</strong></td>
+</tr>
+<tr>
+<td>W6 (COPY)</td>
+<td>100000</td>
+<td>~1300</td>
+<td>~76 000</td>
+</tr>
+</tbody></table>
+<p><strong>Wichtig:</strong> W5 liegt in derselben Größenordnung wie W3/W4 — es benutzt darunter dieselbe
+JDBC-Batch-Technik. Der Gewinn von W5 ist <strong>nicht</strong> höherer Durchsatz, sondern:</p>
+<ul>
+<li><strong>Chunk-Commit</strong> statt „alles oder nichts&quot; (schonender bei sehr großen Mengen),</li>
+<li><strong>Restart/Wiederaufsetzen</strong> nach Abbruch (der JobRepository weiß, wo es weiterging),</li>
+<li><strong>Skip-/Retry-Policies</strong>, Listener, <strong>Monitoring</strong> über die Batch-Metadaten.</li>
+</ul>
+<blockquote>
+<p>Kernbotschaft: Ein Batch-<em>Framework</em> wählt man für <strong>Robustheit und Betreibbarkeit</strong>, nicht
+für den letzten Prozentpunkt Geschwindigkeit. Wer nur rohen Durchsatz will, nimmt W6.</p>
+</blockquote>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>config/BatchJobConfig.java</code> → <code>measurementItemWriter(...)</code>: ein wiederverwendbarer
+<code>JdbcBatchItemWriter</code>, der Chunks als JDBC-Batch schreibt (positionsbasierter
+<code>ItemPreparedStatementSetter</code>, weil das Record keine Bean-Getter auf Spaltennamen hat).</li>
+<li><code>service/WriteService.java</code> → <code>w5SpringBatch(...)</code>: baut <strong>pro Request</strong> Step + Job
+(<code>StepBuilder</code>/<code>JobBuilder</code>), weil die Daten aus dem Request kommen. Der Reader ist ein
+<code>ListItemReader</code> über die gelieferten Zeilen. Der Lauf wird über den <code>JobLauncher</code> mit
+<strong>eindeutigen Job-Parametern</strong> gestartet (sonst hielte Spring Batch ihn für einen bereits
+gelaufenen Job).</li>
+<li><code>db/migration/V2__spring_batch_schema.sql</code>: das Batch-Metadatenschema legt <strong>Flyway</strong> an
+(nicht Spring Batch selbst; <code>spring.batch.jdbc.initialize-schema=never</code>).</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>API-Evolution:</strong> Spring Batch 6 markiert <code>JobLauncher</code> und das klassische Chunk-Modell
+als <em>deprecated</em> (Nachfolger in 7.0: <code>JobOperator</code> bzw. ein neues Verarbeitungsmodell). Wir
+nutzen bewusst die aktuell von Spring Boot 4.1 autokonfigurierte, dokumentierte Variante —
+ein gutes Beispiel dafür, dass Frameworks sich weiterentwickeln.</li>
+<li><strong>Job pro Request</strong> ist für ein ad-hoc-Benchmark ungewöhnlich; im Alltag definiert man
+Jobs als Beans und startet sie geplant. Hier stammen die Daten aber aus dem HTTP-Request.</li>
+<li>Die Metadatentabellen wachsen mit jedem Lauf — in echten Systemen räumt man sie auf.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W6</strong> zeigt den reinen Geschwindigkeits-Gegenpol: Postgres <strong>COPY</strong>.</li>
+<li><strong>W7</strong> bringt <strong>Parallelität</strong> (Virtual Threads) und macht die <strong>Pool-Größe</strong> wichtig.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W6 — Postgres COPY (nativer Bulk-Load)</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W5 / W4 · <strong>Nachfolger:</strong> W7</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Alle bisherigen Stufen benutzen <code>INSERT</code> — und selbst der schnellste INSERT-Weg (W4) muss
+jede Zeile durch den regulären Anfrage-Pfad der Datenbank schleusen (Parsen, Planen,
+Ausführen). PostgreSQL hat für Massendaten ein <strong>eigenes Protokoll</strong>: <code>COPY ... FROM STDIN</code>.
+Es überträgt die Zeilen als Datenstrom und schreibt sie auf dem kürzesten Weg in die
+Tabelle. Das ist der <strong>schnellste</strong> Weg, große Datenmengen zu laden.</p>
+<p>Wir sprechen COPY direkt über den pgjdbc-<code>CopyManager</code> an.</p>
+<h2>Was die Messung zeigt</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+<th>Faktor ggü. W4</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W4</td>
+<td>100000</td>
+<td>2180</td>
+<td>45 875</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>W6</strong></td>
+<td>100000</td>
+<td>1211</td>
+<td><strong>82 590</strong></td>
+<td><strong>≈ 1,8×</strong></td>
+</tr>
+</tbody></table>
+<p>Gegenüber der Transaktions-Stufe W2 (498 Zeilen/s) ist COPY rund <strong>166× schneller</strong>.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/WriteService.java</code> → <code>w6Copy(...)</code>:<ol>
+<li>holt eine <code>Connection</code> aus der DataSource,</li>
+<li>entpackt sie zu <code>PGConnection</code> (<code>connection.unwrap(PGConnection.class)</code>),</li>
+<li>baut mit <code>toCsv(...)</code> einen CSV-Text und übergibt ihn an
+<code>copyManager.copyIn(&quot;COPY measurements (...) FROM STDIN WITH (FORMAT csv)&quot;, reader)</code>.</li>
+</ol>
+</li>
+<li><code>toCsv(...)</code>: erzeugt pro Zeile eine CSV-Zeile. Unsere Daten enthalten keine
+Sonderzeichen (Kategorie aus fester Liste, Payload nur Kleinbuchstaben), daher ist <strong>kein
+CSV-Escaping</strong> nötig. Ein <strong>leeres</strong> Feld bedeutet im CSV-Modus <code>NULL</code> — genau richtig für
+ein fehlendes <code>payload</code> (dafür gibt es einen eigenen Test).</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Escaping:</strong> Bei echten Daten mit Kommas, Anführungszeichen oder Zeilenumbrüchen <strong>muss</strong>
+man CSV korrekt escapen (oder das Text-/Binärformat von COPY nutzen). Unsere Vereinfachung
+gilt nur, weil die Testdaten kontrolliert sind.</li>
+<li><strong>NULL vs. leerer String:</strong> Im CSV-Modus ist ein <em>unquotetes</em> leeres Feld <code>NULL</code>, ein
+<em>quotetes</em> <code>&quot;&quot;</code> der leere String. Diese Feinheit ist eine typische Fehlerquelle.</li>
+<li>COPY umgeht Trigger-freundliche Einzelverarbeitung — es ist für reinen Bulk-Load gedacht.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W7</strong> verlässt die „eine Verbindung, seriell&quot;-Welt: Es verteilt den Ingest über
+<strong>mehrere Verbindungen parallel</strong> (Virtual Threads) — und hier wird endlich die
+<strong>Größe des Connection-Pools</strong> (HikariCP) zum entscheidenden Faktor.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W7 — Parallel-Ingest über Virtual Threads (+ Pool-Sizing)</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W6 · <strong>Nachfolger:</strong> W8</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Alle bisherigen Stufen arbeiten <strong>seriell</strong> — ein Thread, eine Verbindung. W7 verteilt den
+Ingest auf <strong>mehrere Verbindungen gleichzeitig</strong>: Die Zeilen werden in Partitionen
+aufgeteilt, jede Partition läuft als eigener Task (JDBC-Batch mit
+<code>reWriteBatchedInserts=true</code>), und alle Tasks laufen <strong>parallel</strong> auf einem
+<strong>Virtual-Thread-pro-Task-Executor</strong>.</p>
+<pre><code class="language-java">try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    for (var part : partitions) futures.add(executor.submit(() -&gt; batchInsert(part)));
+    ...
+}
+</code></pre>
+<p><strong>Virtual Threads</strong> (Java 21) machen Nebenläufigkeit billig: Man kann bedenkenlos viele
+Tasks starten, ohne einen knappen Plattform-Thread-Pool zu erschöpfen.</p>
+<h2>Die eigentliche Lektion: Pool-Größe ↔ Parallelität</h2>
+<p>Parallelität hilft nur, wenn die Datenbank <strong>genug Verbindungen</strong> bereitstellt. Deshalb
+nutzt W7 einen <strong>eigenen HikariCP-Pool mit 16 Verbindungen</strong> (≥ Parallelitätsgrad 8). Mit
+dem Standard-Pool (10) oder gar einem kleinen Pool würden die Tasks um Verbindungen
+konkurrieren und sich <strong>serialisieren</strong> — der Parallelitätsvorteil verpufft.</p>
+<blockquote>
+<p>Genau hier wird das Connection-Pool-Sizing, das in einer seriellen Welt (W2–W6) kaum eine
+Rolle spielt, zum entscheidenden Faktor.</p>
+</blockquote>
+<h2>Was die Messung zeigt</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W4 (seriell, Batch+reWrite)</td>
+<td>100000</td>
+<td>~2250</td>
+<td>~44 000</td>
+</tr>
+<tr>
+<td><strong>W7 (parallel, VThreads)</strong></td>
+<td>100000</td>
+<td>~1190</td>
+<td><strong>~84 000</strong></td>
+</tr>
+<tr>
+<td>W6 (COPY, seriell)</td>
+<td>100000</td>
+<td>~975</td>
+<td>~102 000</td>
+</tr>
+</tbody></table>
+<p>W7 verdoppelt gegenüber dem seriellen W4 grob den Durchsatz. Ob COPY (W6) noch überholt
+wird, hängt stark von Kernen, Platte und WAL-Konfiguration ab — auf write-lastigen Systemen
+ist COPY oft schwer zu schlagen, aber W7 kommt nah heran.</p>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Pool zu klein → kein Nutzen.</strong> Der wichtigste Stolperstein; deshalb der dedizierte Pool.</li>
+<li>Mehr Parallelität ist nicht beliebig gut: Zu viele gleichzeitige Schreiber erzeugen
+<strong>Contention</strong> (Locks, WAL, I/O). Der optimale Grad ist ein Tuning-Thema.</li>
+<li>Reihenfolge/Transaktionalität über Partitionen hinweg geht verloren (jede Partition
+committet für sich) — für reinen Bulk-Insert akzeptabel.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>W8</strong> wechselt das Programmiermodell komplett: <strong>reaktiv/non-blocking</strong> über
+R2DBC — und zeigt, dass „reaktiv&quot; nicht automatisch „schneller beim Bulk-Insert&quot; heißt.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>W8 — Reaktiver Ingest über R2DBC</h1>
+<blockquote>
+<p><strong>Track:</strong> Write · <strong>Vorgänger:</strong> W7 · <strong>Abschluss des Write-Tracks</strong></p>
+</blockquote>
+<h2>Konzept</h2>
+<p>W8 wechselt das <strong>Programmiermodell</strong>: weg vom blockierenden JDBC, hin zu <strong>R2DBC</strong>
+(Reactive Relational Database Connectivity). Die Zeilen laufen als reaktiver <strong>Reactor-Strom</strong>:</p>
+<pre><code class="language-java">Flux.fromIterable(rows)
+    .buffer(BATCH_SIZE)                       // in Chunks gruppieren
+    .flatMap(this::insertChunk, CONCURRENCY)  // begrenzt gleichzeitig -&gt; Backpressure
+    .reduce(0L, Long::sum)
+    .block();                                 // Ergebnis an der MVC-Grenze einsammeln
+</code></pre>
+<p>Der Insert-Pfad selbst ist vollständig <strong>non-blocking</strong>; die begrenzte Nebenläufigkeit
+(<code>CONCURRENCY</code>) ist die <strong>Backpressure</strong>: Der Verbraucher (DB) gibt das Tempo vor, der
+Produzent überrennt ihn nicht.</p>
+<h2>Was die Messung zeigt — die ehrliche Lektion</h2>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Zeilen</th>
+<th>Server ms</th>
+<th>Zeilen/s</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>W2 (JPA, 1 Transaktion)</td>
+<td>5000</td>
+<td>~10000</td>
+<td>~500</td>
+</tr>
+<tr>
+<td><strong>W8 (R2DBC reaktiv)</strong></td>
+<td>20000</td>
+<td>~21900</td>
+<td><strong>~900</strong></td>
+</tr>
+<tr>
+<td>W3 (JDBC-Batch)</td>
+<td>100000</td>
+<td>~6600</td>
+<td>~15 000</td>
+</tr>
+<tr>
+<td>W6 (COPY)</td>
+<td>100000</td>
+<td>~975</td>
+<td>~100 000</td>
+</tr>
+</tbody></table>
+<p><strong>W8 ist beim reinen Bulk-Insert langsam</strong> — hier sogar mit am langsamsten. Das ist kein
+Fehler, sondern die Kernbotschaft:</p>
+<blockquote>
+<p><strong>Reaktiv ist kein Turbo-Knopf für Durchsatz.</strong> R2DBC/Reactive glänzt bei <strong>hoher
+Nebenläufigkeit</strong> und <strong>I/O-Wartezeiten</strong> (viele gleichzeitige, teils langsame Clients,
+Streaming, effiziente Thread-Nutzung) — nicht beim stumpfen Massen-Insert. Für reinen
+Bulk-Load bleibt <strong>COPY</strong> (W6) das Mittel der Wahl.</p>
+</blockquote>
+<p>Deshalb ist W8 im Client auf <strong>20 000 Zeilen</strong> begrenzt (sonst dauert der Lauf im Browser zu lange).</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/WriteService.java</code> → <code>w8ReactiveIngest(...)</code>, <code>insertChunkReactive(...)</code>,
+<code>bindRowReactive(...)</code>: reaktiver Chunk-Insert über die R2DBC-<code>Statement</code>-API
+(Platzhalter <code>$1..$12</code>, <code>statement.add()</code> je Zeile).</li>
+<li><strong>Wichtige Architektur-Entscheidung</strong> (<code>buildConnectionFactory</code> im WriteService): Die
+R2DBC-<code>ConnectionFactory</code> ist bewusst <strong>keine Spring-Bean</strong>, sondern ein privates Feld,
+abgeleitet aus der JDBC-DataSource-URL. Grund: Spring Boots
+<code>DataSourceAutoConfiguration</code> ist <code>@ConditionalOnMissingBean(ConnectionFactory)</code> — eine
+<code>ConnectionFactory</code>-<strong>Bean</strong> würde die JDBC-DataSource-Autokonfiguration komplett
+abschalten (Reactive-First-Heuristik) und damit JPA/Flyway lahmlegen. Als privates Feld
+umgehen wir das und lassen JDBC und R2DBC friedlich koexistieren.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong><code>block()</code> an der Grenze:</strong> Dieser Endpoint lebt in der (blockierenden) MVC-Welt, daher
+wird das reaktive Ergebnis am Ende eingesammelt. In einer echten WebFlux-Anwendung bliebe
+die Kette bis zum HTTP-Response reaktiv (das zeigt der Read-Track mit SSE, R8).</li>
+<li><strong>Kein <code>reWriteBatchedInserts</code>:</strong> Der R2DBC-Postgres-Treiber bündelt Batches nicht in
+Multi-Row-INSERTs — ein Grund für den geringeren Durchsatz gegenüber W4.</li>
+<li>Mischbetrieb JDBC + R2DBC will bewusst konfiguriert sein (siehe Architektur-Hinweis oben).</li>
+</ul>
+<h2>Fazit des Write-Tracks</h2>
+<p>Von W0 (1 Request/Zeile) bis W6 (COPY) steigt der Durchsatz um <strong>Größenordnungen</strong> — der
+größte Hebel war das <strong>Bündeln</strong> (erst Commits, dann Round-Trips), gefolgt vom <strong>richtigen
+DB-Werkzeug</strong> (COPY). W7 zeigt <strong>Parallelität</strong>, W8 ein <strong>anderes Programmiermodell</strong>. Die
+wichtigste Erkenntnis: Es gibt kein „schneller ist immer besser&quot; — jede Technik hat ihren
+Kontext, ihre Trade-offs und ihren richtigen Einsatzort.</p>
+</section>
+<section class="doc pagebreak"><h1>R0 — Read-Baseline: die komplette Tabelle als ein JSON-Array</h1>
+<blockquote>
+<p><strong>Track:</strong> Read (DB → Server → Client)
+<strong>Ziel:</strong> Die absichtlich schlechteste sinnvolle Leseimplementierung. Referenz für
+die Read-Stufen R1–R8.</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Der Client möchte Messdaten anzeigen. In dieser Stufe holt der Server sie auf die
+naivste Weise:</p>
+<ol>
+<li><code>repository.findAll()</code> lädt <strong>alle</strong> Zeilen als <strong>vollständige Entities</strong> in eine
+<code>List</code> im Server-Speicher.</li>
+<li>Diese Liste wird <strong>komplett</strong> in <strong>ein großes JSON-Array</strong> serialisiert.</li>
+<li>Erst wenn das gesamte Array fertig ist, geht die Antwort an den Client.</li>
+</ol>
+<h2>Warum ist das schlecht?</h2>
+<p>Gleich drei Schwächen greifen zusammen:</p>
+<table>
+<thead>
+<tr>
+<th>Schwäche</th>
+<th>Folge</th>
+<th>Wird angegriffen von</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Alles auf einmal</strong> in den RAM</td>
+<td>Speicher wächst linear mit der Tabelle; bei Millionen Zeilen droht <code>OutOfMemoryError</code></td>
+<td>R2 (Pagination), R3 (Streaming)</td>
+</tr>
+<tr>
+<td><strong>Vollständige Entities</strong> (alle Spalten inkl. <code>payload</code>)</td>
+<td>unnötig große Nutzlast, auch wenn der Client nur wenige Felder braucht</td>
+<td>R1 (DTO-Projektion)</td>
+</tr>
+<tr>
+<td><strong>Erst fertig serialisieren, dann senden</strong></td>
+<td>hohe <strong>Time-To-First-Byte</strong>; der Client sieht lange gar nichts</td>
+<td>R3 (Streaming), R8 (Reactive)</td>
+</tr>
+</tbody></table>
+<p>Zusätzlich muss der Client das <strong>gesamte</strong> JSON parsen, bevor er etwas anzeigen kann —
+auch das kostet spürbar Zeit und Speicher.</p>
+<h2>Code-Walkthrough</h2>
+<p><strong>Server:</strong></p>
+<ul>
+<li><code>service/ReadService.java</code> → <code>findAllNaive()</code>: <code>return repository.findAll();</code>,
+annotiert mit <code>@Transactional(readOnly = true)</code>.</li>
+<li><code>controller/ReadController.java</code> → <code>r0FindAll()</code>: gibt die <code>List&lt;Measurement&gt;</code>
+<strong>direkt</strong> zurück. Jackson serialisiert die <strong>Entities selbst</strong> — bewusst das
+Anti-Pattern, das R1 mit einem schlanken DTO auflöst.</li>
+</ul>
+<p><strong>Client</strong> (<code>client/src/stages.ts</code>, Stufe <code>r0</code>):</p>
+<pre><code class="language-ts">const m = await measure(&#39;/api/read/r0&#39;, { method: &#39;GET&#39; });
+const rows = (JSON.parse(m.bodyText) as unknown[]).length;
+</code></pre>
+<p>Das Mess-Harness zählt die <strong>übertragenen Bytes</strong> direkt aus dem Antwort-Stream und
+liest die <strong>Serverzeit</strong> aus dem <code>Server-Timing</code>-Header.</p>
+<h2>Messung</h2>
+<p>Voraussetzung: vorher <strong>Seed</strong> ausführen (z. B. 100 000 Zeilen). Dann <strong>R0</strong> starten.
+Beobachte in der Tabelle:</p>
+<ul>
+<li><strong>KB / MB</strong>: die volle Nutzlast auf der Leitung — inkl. aller Spalten und <code>payload</code>.</li>
+<li><strong>TTFB ≈ Gesamtzeit</strong>: typisch für „erst alles fertig, dann senden&quot;.</li>
+<li><strong>Server ms</strong>: Zeit zum Laden + Serialisieren im Server.</li>
+</ul>
+<p>Merke dir diese Zahlen — R1 (Projektion) senkt zuerst die <strong>Bytes</strong>, R3 (Streaming)
+senkt vor allem die <strong>TTFB</strong>.</p>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li>R0 <strong>funktioniert</strong> für kleine Tabellen völlig problemlos — genau das macht es
+gefährlich: Es fällt erst bei großem Datenbestand um. Für die Demo daher ruhig mit
+vielen Zeilen (und <code>payloadLength &gt; 0</code>) seeden, damit der Effekt sichtbar wird.</li>
+<li>Entities direkt zu serialisieren koppelt zudem die API an das DB-Schema — ein
+Wartungsproblem, das R1 nebenbei mitlöst.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R1</strong> liefert statt der ganzen Entity ein <strong>DTO</strong> mit nur den benötigten Spalten →
+weniger Bytes.</li>
+<li><strong>R2</strong> holt die Daten <strong>seitenweise</strong> (Keyset) statt alles auf einmal.</li>
+<li><strong>R3</strong> <strong>streamt</strong> die Zeilen (NDJSON) → niedrige TTFB, konstanter Speicher.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R1 — DTO-Projektion</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R0 · <strong>Nachfolger:</strong> R2</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>R0 serialisiert die <strong>vollständige Entity</strong> — alle Spalten, inklusive der acht Messwerte
+<code>v1..v8</code> und des potenziell großen <code>payload</code>. R1 liefert stattdessen ein <strong>schlankes DTO</strong>
+mit nur den Feldern, die der Client wirklich braucht: <code>id, ts, sensorId, category, v1</code>.</p>
+<p>Statt JPA-Entities zu materialisieren, selektiert R1 direkt per JDBC nur die benötigten
+Spalten — das spart auch serverseitig Arbeit.</p>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen, mit <code>payloadLength=64</code> geseedet:</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Nutzlast</th>
+<th>Faktor</th>
+<th>Zeit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R0 (volle Entity)</td>
+<td>35,4 MB</td>
+<td>—</td>
+<td>8,8 s</td>
+</tr>
+<tr>
+<td><strong>R1 (Projektion)</strong></td>
+<td>10,7 MB</td>
+<td><strong>~3,3× kleiner</strong></td>
+<td>1,3 s</td>
+</tr>
+</tbody></table>
+<p>Die Projektion <strong>drittelt</strong> die Nutzlast und ist hier ~7× schneller — allein dadurch, dass
+die schweren Felder (v2–v8, payload) gar nicht erst übertragen werden. Mit größerem
+<code>payload</code> wird der Unterschied noch drastischer.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>dto/MeasurementDto.java</code>: das schlanke Record (<code>id, ts, sensorId, category, v1</code>).</li>
+<li><code>service/ReadService.java</code> → <code>projection()</code>: <code>jdbcTemplate.query(...)</code> mit einem RowMapper,
+der genau diese Spalten liest — <strong>kein</strong> Laden voller Entities.</li>
+<li><code>controller/ReadController.java</code> → <code>r1Projection()</code>: gibt die DTO-Liste als JSON zurück.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Ein DTO pro Sichtweise:</strong> Verschiedene Clients brauchen verschiedene Felder — zu viele
+DTOs werden unübersichtlich. Alternativen: GraphQL, Sparse Fieldsets, projizierende
+Query-Sprachen.</li>
+<li>Die Projektion entkoppelt die API vom DB-Schema (gut), erfordert aber Pflege beim Mapping.</li>
+<li>Es wird weiterhin <strong>alles auf einmal</strong> geladen und gesendet — das lösen erst R2
+(Pagination) und R3 (Streaming).</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R2</strong> holt die Daten <strong>seitenweise</strong> statt alles auf einmal (Offset vs. Keyset).</li>
+<li><strong>R4</strong> komprimiert die (bereits schlanke) Projektion zusätzlich per gzip.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R2 — Pagination: Offset vs. Keyset</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R1 · <strong>Nachfolger:</strong> R3</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>R0/R1 laden <strong>alles auf einmal</strong>. R2 holt die Daten stattdessen <strong>seitenweise</strong>. Dabei gibt
+es zwei grundverschiedene Techniken:</p>
+<p><strong>Offset-Pagination</strong> (<code>ORDER BY id OFFSET ? LIMIT ?</code>):
+Die DB sortiert, <strong>überspringt</strong> <code>OFFSET</code> Zeilen und liefert die nächsten <code>LIMIT</code>. Das
+Überspringen bedeutet: Für Seite <em>n</em> muss die DB <em>n × Seitengröße</em> Zeilen durchlaufen —
+tiefe Seiten werden <strong>immer langsamer</strong>.</p>
+<p><strong>Keyset-Pagination / Seek</strong> (<code>WHERE id &gt; ? ORDER BY id LIMIT ?</code>):
+Statt zu überspringen, <strong>springt</strong> die DB per Index direkt hinter den zuletzt gesehenen
+Schlüssel. Jede Seite kostet gleich viel — <strong>unabhängig von der Tiefe</strong>.</p>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen, eine <strong>tiefe</strong> Seite (Position ~95 000, Größe 5000):</p>
+<table>
+<thead>
+<tr>
+<th>Technik</th>
+<th>Zeit für die tiefe Seite</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Offset (<code>OFFSET 95000</code>)</td>
+<td>~0,208 s</td>
+</tr>
+<tr>
+<td><strong>Keyset (<code>WHERE id &gt; 95000</code>)</strong></td>
+<td><strong>~0,062 s</strong></td>
+</tr>
+</tbody></table>
+<p>Keyset ist hier ~3,4× schneller — und der Abstand <strong>wächst</strong> mit der Seitentiefe. Traversiert
+man die <strong>ganze</strong> Tabelle Seite für Seite (im Dashboard), summiert sich der Offset-Nachteil
+deutlich auf.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/ReadService.java</code> → <code>pageByOffset(...)</code> / <code>pageByKeyset(...)</code>: dieselbe Projektion,
+nur die WHERE-/OFFSET-Klausel unterscheidet sich.</li>
+<li><code>controller/ReadController.java</code> → <code>/r2/offset</code> und <code>/r2/keyset</code>.</li>
+<li>Client (<code>stages.ts</code>, <code>traverseOffset</code> / <code>traverseKeyset</code>): blättert die ganze Tabelle
+durch und misst die Gesamtzeit. Keyset merkt sich die <strong>letzte id</strong> als nächsten <code>afterId</code>.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Keyset kann nicht direkt auf Seite <em>n</em> springen</strong> — es kennt nur „weiter ab hier&quot;. Für
+„Springe zu Seite 500&quot; ist Offset nötig (oder eine andere Strategie). Das ist der zentrale
+Trade-off: Keyset ist schneller, aber weniger flexibel.</li>
+<li>Keyset braucht eine <strong>eindeutige, indizierte Sortierspalte</strong> (hier <code>id</code>). Bei Sortierung
+nach nicht-eindeutigen Spalten muss man den Schlüssel zusammensetzen (z. B. <code>(ts, id)</code>).</li>
+<li>Offset ist einfacher und für <strong>flache</strong> Seiten (die ersten paar) völlig in Ordnung.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R3</strong> löst ein anderes Problem: nicht <em>wie viel</em>, sondern <em>wann</em> die Daten
+ankommen — Streaming senkt die Time-To-First-Byte.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R3 — Server-seitiges Streaming (NDJSON)</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R2 · <strong>Nachfolger:</strong> R4</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>R0/R1 bauen die <strong>komplette</strong> Antwort im Speicher zusammen und senden sie erst, wenn sie
+fertig ist. Zwei Nachteile: Der Speicher wächst mit der Datenmenge, und der Client sieht
+<strong>lange gar nichts</strong> (hohe Time-To-First-Byte).</p>
+<p>R3 <strong>streamt</strong>: Der Server liest die Zeilen über einen <strong>DB-Cursor</strong> blockweise und schreibt
+jede Zeile sofort als <strong>NDJSON</strong> (ein JSON-Objekt pro Zeile) in den Ausgabestrom. So liegt
+immer nur ein kleiner Block im Speicher, und das erste Byte erreicht den Client fast sofort.</p>
+<p>Der Cursor entsteht durch drei Zutaten (PostgreSQL-JDBC):
+<code>autoCommit = false</code> + <code>fetchSize &gt; 0</code> + <code>TYPE_FORWARD_ONLY</code>.</p>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen:</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>TTFB (erstes Byte)</th>
+<th>Gesamtzeit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R1 (buffered)</td>
+<td>~0,454 s</td>
+<td>~0,80 s</td>
+</tr>
+<tr>
+<td><strong>R3 (streaming)</strong></td>
+<td><strong>~0,043 s</strong></td>
+<td>~0,85 s</td>
+</tr>
+</tbody></table>
+<p>Die <strong>TTFB sinkt um ~10×</strong> — der Client kann sofort anfangen zu verarbeiten/anzuzeigen,
+während der Rest noch fließt. Die Gesamtzeit ist ähnlich; der Gewinn liegt in <strong>Reaktivität
+und konstantem Speicher</strong>, nicht in weniger Bytes.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/ReadService.java</code> → <code>streamNdjson(OutputStream)</code>: öffnet eine Connection mit
+<code>autoCommit=false</code>, setzt <code>fetchSize=1000</code>, iteriert das <code>ResultSet</code> und schreibt je Zeile
+<code>objectMapper.writeValueAsBytes(dto)</code> + <code>\n</code>.</li>
+<li><code>controller/ReadController.java</code> → <code>r3Stream()</code>: gibt eine <code>StreamingResponseBody</code> zurück
+(<code>produces = &quot;application/x-ndjson&quot;</code>), die Spring MVC streamend abarbeitet.</li>
+<li>Client (<code>stages.ts</code>, <code>r3Stage</code>): das Harness misst über den Stream-Reader die <strong>TTFB</strong>;
+die Zeilen werden per Zeilenumbruch gezählt.</li>
+</ul>
+<blockquote>
+<p>Hinweis: Weil die Antwort früh „committed&quot; ist, kann der <code>ServerTimingFilter</code> seinen Header
+nicht mehr setzen — bei R3 zählt daher die clientseitige TTFB/Gesamtzeit.</p>
+</blockquote>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Transaktion offen halten:</strong> Der Cursor lebt in einer offenen Transaktion, solange
+gestreamt wird. Bei sehr langsamen Clients bindet das eine DB-Verbindung.</li>
+<li><strong>Fehler mitten im Stream:</strong> Ist der HTTP-Status (200) schon gesendet, kann man ihn nicht
+mehr ändern — Fehlerbehandlung während des Streamens ist kniffliger.</li>
+<li>NDJSON ist ideal fürs zeilenweise Verarbeiten; ein einzelnes großes JSON-Array wäre für
+Streaming unpraktisch (Klammern/Kommas).</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R5</strong> spart die Arbeit ganz — per Caching für wiederholte Abfragen.</li>
+<li><strong>R8</strong> treibt das Streaming ins <strong>Reaktive</strong> (R2DBC) und zeigt Server-Sent Events.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R4 — HTTP-Kompression (gzip)</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>verwandt mit:</strong> R1 · <strong>Nachfolger:</strong> R5</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>R4 überträgt <strong>dieselben</strong> Projektionsdaten wie R1, aber <strong>gzip-komprimiert</strong>.
+JSON komprimiert hervorragend, weil es sehr repetitiv ist (immer dieselben Feldnamen,
+ähnliche Werte). Der Browser dekomprimiert transparent (<code>Content-Encoding: gzip</code>).</p>
+<p>Damit R1 (unkomprimiert) und R4 (komprimiert) <strong>direkt vergleichbar</strong> sind, komprimiert der
+Endpoint bewusst <strong>manuell</strong> — statt globaler Servlet-Kompression, die alle Antworten
+beträfe.</p>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen, <code>payloadLength=64</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Nutzlast auf der Leitung</th>
+<th>Faktor ggü. R0</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R0 (volle Entity)</td>
+<td>35,4 MB</td>
+<td>—</td>
+</tr>
+<tr>
+<td>R1 (Projektion)</td>
+<td>10,7 MB</td>
+<td>~3,3×</td>
+</tr>
+<tr>
+<td><strong>R4 (Projektion + gzip)</strong></td>
+<td><strong>2,4 MB</strong></td>
+<td><strong>~15×</strong></td>
+</tr>
+</tbody></table>
+<p>gzip drückt die schon schlanke Projektion nochmals um ~4,5×. Von R0 zu R4 sind es zusammen
+rund <strong>15× weniger Bytes</strong>. Im Dashboard zeigt die Spalte <strong>„Wire KB&quot;</strong> genau diese echte
+Leitungsgröße (aus dem Header <code>X-Wire-Bytes</code>).</p>
+<h2>Warum ein eigener Header für die Wire-Größe?</h2>
+<p>Der Browser <strong>dekomprimiert</strong> die Antwort, bevor unser Mess-Code den Body liest — wir würden
+also die <em>unkomprimierte</em> Größe zählen und die Ersparnis nicht sehen. Deshalb schickt der
+Server die tatsächliche komprimierte Größe im Header <code>X-Wire-Bytes</code> mit, und das Harness
+nutzt sie für „Wire KB&quot; und den MB/s-Durchsatz.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>controller/ReadController.java</code> → <code>r4Compressed()</code>: serialisiert die Projektion zu JSON
+(<code>ObjectMapper</code> — in Boot 4 aus dem Paket <code>tools.jackson.databind</code>), komprimiert sie mit
+<code>GZIPOutputStream</code>, setzt <code>Content-Encoding: gzip</code> und <code>X-Wire-Bytes</code> und gibt die Bytes
+zurück.</li>
+<li><code>harness.ts</code> → <code>measure()</code>: liest <code>X-Wire-Bytes</code> und füllt damit <code>wireBytes</code>.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>CPU vs. Bandbreite:</strong> Kompression kostet Rechenzeit auf beiden Seiten. Bei sehr kleinen
+Antworten oder CPU-Engpässen lohnt sie sich nicht — die globale Servlet-Kompression hat
+deshalb eine Mindestgröße.</li>
+<li><strong>Nicht doppelt komprimieren:</strong> Schon komprimierte Inhalte (Bilder, Protobuf) profitieren
+kaum; gzip darüber ist verschwendete CPU.</li>
+<li>Für maximale Ersparnis wäre <code>br</code> (Brotli) oft noch besser als gzip.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R3</strong> senkt statt der Bytes die <strong>Time-To-First-Byte</strong> durch Streaming.</li>
+<li><strong>R5</strong> vermeidet die Arbeit ganz — per Caching für wiederholte Abfragen.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R5 — Caching (Caffeine)</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R4 · <strong>Nachfolger:</strong> R6</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Die schnellste Abfrage ist die, die man <strong>gar nicht</strong> ausführt. R5 nutzt die
+<strong>Spring-Cache-Abstraktion</strong> mit <strong>Caffeine</strong> (In-Memory-Cache): Das Ergebnis einer teuren
+Aggregat-Abfrage (Statistik je Kategorie über alle Zeilen) wird nach dem ersten Aufruf
+gecacht. Jeder weitere Aufruf wird <strong>aus dem Speicher</strong> bedient — die Datenbank sieht ihn
+nie.</p>
+<pre><code class="language-java">@Cacheable(&quot;categoryStats&quot;)
+public List&lt;CategoryStat&gt; categoryStats() { ... }   // nur beim ersten Mal wird die DB befragt
+</code></pre>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen; der R5-Lauf leert erst den Cache, misst dann <strong>kalt</strong> und <strong>warm</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Aufruf</th>
+<th>Zeit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>kalt (aus der DB)</td>
+<td>~0,111 s</td>
+</tr>
+<tr>
+<td><strong>warm (aus dem Cache)</strong></td>
+<td><strong>~0,012 s</strong></td>
+</tr>
+</tbody></table>
+<p>Der Cache-Treffer ist hier ~9× schneller — und bei teureren Abfragen (mehr Daten, komplexere
+Aggregation) wird der Unterschied noch größer.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>config/CacheConfig.java</code>: <code>@EnableCaching</code> (ohne das werden die Annotationen ignoriert).</li>
+<li><code>service/ReadService.java</code> → <code>categoryStats()</code> mit <code>@Cacheable(&quot;categoryStats&quot;)</code> und
+<code>evictCategoryStats()</code> mit <code>@CacheEvict</code>.</li>
+<li><code>controller/ReadController.java</code> → <code>GET /r5</code> (gecacht) und <code>POST /r5/evict</code> (Cache leeren).</li>
+<li>Client (<code>stages.ts</code>, <code>r5Stage</code>): leert erst den Cache, misst kalt und warm und zeigt beide
+Werte in der Notiz; die Server-ms-Spalte zeigt den warmen (Cache-)Wert.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Invalidierung ist das schwere Problem:</strong> Ändern sich die Daten, liefert der Cache
+veraltete Ergebnisse, bis er geleert wird — genau das zeigt der Test (R5 bleibt stabil,
+bis <code>evict</code>). Time-to-live, ereignisbasiertes Evict oder Versionierung sind die üblichen
+Strategien.</li>
+<li><strong>Speicher:</strong> Der Cache belegt RAM; Größe/Ablauf müssen begrenzt werden (Caffeine kann
+das). Für verteilte Systeme braucht man einen gemeinsamen Cache (z. B. Redis).</li>
+<li>Caching lohnt sich für <strong>wiederholte, teure, selten geänderte</strong> Abfragen — nicht für alles.</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R6</strong> beschleunigt nicht durch Vermeiden, sondern durch <strong>Parallelisieren</strong>
+unabhängiger Abfragen.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R6 — Parallel-Queries (Virtual Threads)</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R5 · <strong>Nachfolger:</strong> R7</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>Ein „Dashboard&quot; besteht oft aus <strong>mehreren unabhängigen</strong> Abfragen (Kennzahl A, Kennzahl B,
+…). Führt man sie <strong>nacheinander</strong> aus, summiert sich ihre Zeit. Sind sie voneinander
+unabhängig, kann man sie <strong>gleichzeitig</strong> ausführen — dann zählt nur die <em>langsamste</em>.</p>
+<p>R6 führt 8 unabhängige Aggregat-Abfragen aus, wahlweise seriell oder parallel. Parallel
+bekommt jede Abfrage einen eigenen <strong>Virtual Thread</strong>.</p>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen, 8 Abfragen:</p>
+<table>
+<thead>
+<tr>
+<th>Modus</th>
+<th>Serverzeit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>seriell</td>
+<td>~241 ms</td>
+</tr>
+<tr>
+<td><strong>parallel</strong></td>
+<td><strong>~150 ms</strong></td>
+</tr>
+</tbody></table>
+<p>Hier bringt Parallelität ~1,6×. <strong>Warum nicht 8×?</strong> Die Abfragen sind <strong>CPU-gebunden</strong>
+(Full-Scans über die im Speicher liegende Tabelle) und konkurrieren um die verfügbaren
+CPU-Kerne. Der Gewinn ist also durch die Kernzahl begrenzt.</p>
+<blockquote>
+<p>Wichtige Nuance: Der Effekt ist viel größer, wenn die Abfragen <strong>I/O-/Wartezeit-lastig</strong>
+sind (langsame Platte, entfernte Dienste, Locks) — dann warten die Threads, statt Kerne zu
+belegen, und Parallelität zahlt sich stark aus. Genau dafür sind Virtual Threads gemacht.</p>
+</blockquote>
+<h2>Voraussetzung: genug Verbindungen</h2>
+<p>Wie bei W7 gilt: Parallele DB-Abfragen brauchen <strong>mehrere Verbindungen</strong>. Der
+HikariCP-Pool muss groß genug sein (hier 10 ≥ 8 parallele Abfragen), sonst serialisieren
+sich die Abfragen am Pool.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>service/ReadService.java</code> → <code>dashboard(boolean parallel)</code>: führt die 8 Abfragen seriell
+in einer Schleife oder parallel über <code>Executors.newVirtualThreadPerTaskExecutor()</code> aus.</li>
+<li><code>controller/ReadController.java</code> → <code>GET /r6?parallel=...</code>: misst die Serverzeit und gibt
+sie im <code>BenchmarkResult</code>-Envelope zurück.</li>
+<li>Client (<code>stages.ts</code>, <code>r6SeqStage</code> / <code>r6ParStage</code>): zwei Stufen für den direkten Vergleich.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Nur für unabhängige Abfragen.</strong> Hängt B von A ab, bringt Parallelität nichts.</li>
+<li><strong>Mehr ist nicht immer besser:</strong> Zu viele gleichzeitige Abfragen erzeugen Contention (CPU,
+Pool, Locks). Der optimale Grad ist ein Tuning-Thema.</li>
+<li>Fehlerbehandlung wird komplexer (mehrere Tasks, Teil-Ergebnisse).</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R7</strong> senkt die Serialisierungskosten und die Bytes durch ein <strong>Binärformat</strong>
+statt JSON.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R7 — Binärformat (CBOR) statt JSON</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R6 · <strong>Nachfolger:</strong> R8</p>
+</blockquote>
+<h2>Konzept</h2>
+<p>JSON ist textbasiert und dadurch etwas „geschwätzig&quot;: Feldnamen als Text, Zahlen als
+Ziffernfolgen, viele Trennzeichen. <strong>CBOR</strong> (Concise Binary Object Representation, RFC 8949)
+ist ein <strong>binäres</strong> Format mit demselben Datenmodell wie JSON — nur kompakter und schneller
+zu (de)serialisieren.</p>
+<p>R7 liefert dieselben Projektionsdaten wie R1, aber als CBOR. Damit der Client das
+Binärformat nicht selbst dekodieren muss, kommt die Zeilenzahl im Header <code>X-Rows</code>.</p>
+<h2>Was die Messung zeigt</h2>
+<p>100 000 Zeilen (ohne payload):</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>Nutzlast</th>
+<th>Faktor ggü. R1</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R1 (JSON)</td>
+<td>10,75 MB</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>R7 (CBOR)</strong></td>
+<td><strong>8,06 MB</strong></td>
+<td><strong>~0,75× (≈ 25 % kleiner)</strong></td>
+</tr>
+</tbody></table>
+<p>CBOR spart hier ~25 %. Wie viel genau, hängt von den Daten ab: Bei vielen wiederholten
+<strong>Feldnamen</strong> und kompakten <strong>Zahlen</strong> ist der Gewinn größer; bei langen Freitexten kleiner.</p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>controller/ReadController.java</code> → <code>r7Cbor()</code>: serialisiert die Projektion mit einem
+<code>CBORMapper</code> (Jackson 3, Paket <code>tools.jackson.dataformat.cbor</code>) und setzt
+<code>Content-Type: application/cbor</code>, <code>X-Wire-Bytes</code> und <code>X-Rows</code>.</li>
+<li>Client (<code>stages.ts</code>, <code>r7Stage</code>): misst die Byte-Größe direkt und liest die Zeilenzahl aus
+<code>X-Rows</code>.</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Nicht menschenlesbar:</strong> CBOR lässt sich nicht einfach im Browser/Log ansehen — schlechter
+für Debugging.</li>
+<li><strong>Client-Support nötig:</strong> Der Empfänger braucht einen CBOR-Decoder. JSON ist universell.</li>
+<li><strong>Kompression relativiert den Vorteil:</strong> gzip über JSON (siehe R4) holt oft mehr
+heraus als CBOR unkomprimiert. Am kleinsten wird es mit <strong>CBOR + Kompression</strong>.</li>
+<li>Für maximale Kompaktheit/Schema-Sicherheit sind schemabasierte Formate (Protobuf, Avro)
+noch effizienter — aber aufwändiger (Schema-Pflege, Codegen).</li>
+</ul>
+<h2>Ausblick</h2>
+<ul>
+<li><strong>R8</strong> schließt den Read-Track mit dem <strong>reaktiven</strong> Ansatz (R2DBC) ab.</li>
+</ul>
+</section>
+<section class="doc pagebreak"><h1>R8 — Reaktives Streaming über R2DBC</h1>
+<blockquote>
+<p><strong>Track:</strong> Read · <strong>Vorgänger:</strong> R7 · <strong>Abschluss des Read-Tracks</strong></p>
+</blockquote>
+<h2>Konzept</h2>
+<p>R8 liest die Daten <strong>reaktiv</strong> über <strong>R2DBC</strong>: Die Query liefert einen Reactor-<code>Flux</code>, den
+Spring MVC elementweise als NDJSON streamt. Es ist das Read-Gegenstück zu W8 und die
+reaktive Variante von R3.</p>
+<pre><code class="language-java">public Flux&lt;MeasurementDto&gt; streamReactive() {
+    return Flux.usingWhen(connectionFactory.create(),
+        conn -&gt; Flux.from(conn.createStatement(PROJECTION_SQL).fetchSize(1000).execute())
+                    .flatMap(result -&gt; result.map((row, meta) -&gt; new MeasurementDto(...))),
+        conn -&gt; conn.close());
+}
+</code></pre>
+<h2>Was die Messung zeigt — die ehrliche Lektion</h2>
+<p>100 000 Zeilen:</p>
+<table>
+<thead>
+<tr>
+<th>Stufe</th>
+<th>TTFB</th>
+<th>Gesamtzeit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R3 (Servlet-Streaming)</td>
+<td>~0,02 s</td>
+<td>~1,0 s</td>
+</tr>
+<tr>
+<td><strong>R8 (R2DBC reaktiv, in MVC)</strong></td>
+<td><strong>~1,0 s</strong></td>
+<td><strong>~14 s</strong></td>
+</tr>
+</tbody></table>
+<p><strong>R8 ist hier deutlich langsamer als R3</strong> — nicht schneller. Das ist kein Bug, sondern eine
+wichtige Einsicht:</p>
+<blockquote>
+<p>Einen reaktiven <code>Flux</code> in einen <strong>blockierenden MVC-Endpoint</strong> zu brücken kostet viel: Die
+Reactive→MVC-NDJSON-Brücke serialisiert und flusht Element für Element, dazu kommt der
+Overhead des reaktiven Row-Mappings. Der eigentliche Nutzen von R2DBC/Reactive entsteht
+erst in einer <strong>vollständigen WebFlux-Anwendung</strong> und unter <strong>hoher Nebenläufigkeit</strong> (viele
+gleichzeitige, teils langsame Clients) — dann skaliert das nicht-blockierende Modell mit
+wenigen Threads. Für ein einzelnes Bulk-Streaming ist der klassische Servlet-Cursor (R3)
+klar überlegen.</p>
+</blockquote>
+<p>Damit spannt sich der Bogen zu W8: <strong>Reaktiv ist ein anderes Programmiermodell für
+Nebenläufigkeit/IO — kein Turbo-Knopf für Durchsatz.</strong></p>
+<h2>Code-Walkthrough</h2>
+<ul>
+<li><code>common/R2dbcSupport.java</code>: leitet die R2DBC-<code>ConnectionFactory</code> aus der JDBC-DataSource ab
+(dieselbe Utility nutzt auch W8). Bewusst <strong>keine Spring-Bean</strong> — sonst schaltet Boots
+<code>DataSourceAutoConfiguration</code> die JDBC-DataSource ab (<code>@ConditionalOnMissingBean(ConnectionFactory)</code>).</li>
+<li><code>service/ReadService.java</code> → <code>streamReactive()</code>: der reaktive Lese-Flux.</li>
+<li><code>controller/ReadController.java</code> → <code>r8Reactive()</code>: gibt den <code>Flux</code> zurück; Spring MVC
+streamt ihn als NDJSON (<code>produces = &quot;application/x-ndjson&quot;</code>).</li>
+</ul>
+<h2>Fallstricke &amp; Trade-offs</h2>
+<ul>
+<li><strong>Mischbetrieb MVC + Reactive</strong> ist selten optimal — entweder ganz blockierend (mit
+Virtual Threads sehr effizient!) oder ganz reaktiv (WebFlux).</li>
+<li><strong>Backpressure</strong> funktioniert nur, wenn die ganze Kette sie respektiert; die MVC-Brücke ist
+hier der limitierende Faktor.</li>
+<li>R2DBC hat ein eigenes, kleineres Ökosystem als JDBC (kein Hibernate, andere APIs).</li>
+</ul>
+<h2>Fazit des Read-Tracks</h2>
+<p>Von R0 (alles, volle Entities) bis R7 (schlank + binär) haben wir die Nutzlast um
+<strong>Größenordnungen</strong> verkleinert (Projektion → Kompression → Binärformat), die <strong>TTFB</strong> durch
+Streaming (R3) drastisch gesenkt, mit <strong>Keyset-Pagination</strong> (R2) tiefe Seiten konstant
+schnell gemacht, mit <strong>Caching</strong> (R5) Arbeit ganz vermieden und mit <strong>Parallelität</strong> (R6)
+unabhängige Abfragen beschleunigt. R8 zeigt schließlich: Das reaktive Modell ist mächtig,
+aber kontextabhängig. Die Kernbotschaft des ganzen Projekts: <strong>Es gibt kein „schneller ist
+immer besser&quot; — jede Technik hat ihren Kontext, ihre Trade-offs und ihren richtigen Ort.</strong></p>
+</section>
+<section class="doc pagebreak"><h1>Aufgaben für Studenten</h1>
+<p>Diese Aufgaben führen durch das Projekt — vom Beobachten über das Verstehen bis zum
+Erweitern. Sie sind in drei Stufen gegliedert:</p>
+<ul>
+<li>🟢 <strong>Einsteiger</strong> — beobachten, messen, vorhersagen</li>
+<li>🟡 <strong>Fortgeschritten</strong> — Parameter verändern, Ursachen erklären</li>
+<li>🔴 <strong>Profi</strong> — Code erweitern, eigene Stufen bauen</li>
+</ul>
+<blockquote>
+<p>Arbeite immer nach dem Muster <strong>Vorhersagen → Messen → Erklären</strong>. Schreibe deine
+Vorhersage <em>auf</em>, bevor du misst — der Aha-Effekt entsteht bei den Überraschungen.</p>
+</blockquote>
+<hr>
+<h2>0. Vorbereitung</h2>
+<ol>
+<li>Starte Datenbank, Server und Client (siehe README).</li>
+<li>Seede einen Datenbestand: <strong>100 000 Zeilen, Payload-Länge 32</strong>.</li>
+<li>Mach dich mit dem Dashboard vertraut: Was bedeuten die Spalten <em>Server ms</em>, <em>TTFB</em>,
+<em>Wire KB</em>, <em>Zeilen/s</em>, <em>MB/s</em>?</li>
+</ol>
+<hr>
+<h2>1. Write-Track 🟢</h2>
+<h3>1.1 Vorhersagen</h3>
+<p>Bevor du misst: Ordne die Stufen W0–W6 nach erwartetem Durchsatz (langsamste zuerst).
+Führe dann <strong>▶ Alle Write</strong> aus und vergleiche mit deiner Reihenfolge.</p>
+<h3>1.2 Der überraschende Sprung</h3>
+<ul>
+<li>Um welchen Faktor ist <strong>W2</strong> schneller als <strong>W1</strong>? Warum bringt das bloße Weglassen des
+HTTP-Overheads (W0 → W1) so wenig, aber die gemeinsame Transaktion (W1 → W2) so viel?</li>
+<li>Stichwort: Was passiert bei einem <code>COMMIT</code> physisch auf der Platte?</li>
+</ul>
+<h3>1.3 Warum rohes JDBC ab W3? 🟡</h3>
+<ul>
+<li>Lies <code>docs/W3.md</code>. Warum kann <strong>Hibernate</strong> die INSERTs bei <code>GenerationType.IDENTITY</code>
+nicht als Batch bündeln? Was müsste man an der Entity ändern, damit es ginge — und welchen
+Preis hätte das?</li>
+</ul>
+<h3>1.4 Warum ist COPY (W6) so viel schneller? 🟡</h3>
+<ul>
+<li>Erkläre in zwei Sätzen, was <code>COPY ... FROM STDIN</code> anders macht als viele <code>INSERT</code>s.</li>
+</ul>
+<hr>
+<h2>2. Read-Track 🟢</h2>
+<h3>2.1 Nutzlast schrumpfen</h3>
+<p>Führe R0, R1, R4, R7 aus (Wire KB vergleichen).</p>
+<ul>
+<li>Welchen Anteil spart <strong>Projektion</strong> (R0 → R1), welchen <strong>Kompression</strong> (R1 → R4)?</li>
+<li>Ist <strong>CBOR</strong> (R7) kleiner oder größer als <strong>gzip-JSON</strong> (R4)? Warum?</li>
+</ul>
+<h3>2.2 Zeit vs. Bytes</h3>
+<ul>
+<li>R1 und R3 übertragen ähnlich viele Bytes. Warum ist die <strong>TTFB</strong> von R3 trotzdem ~10× kleiner?</li>
+<li>Für welche Art von Anwendung ist niedrige TTFB wichtiger als Gesamtzeit?</li>
+</ul>
+<h3>2.3 Pagination 🟡</h3>
+<ul>
+<li>Führe R2 (Offset) und R2 (Keyset) aus. Warum wächst der Offset-Nachteil mit der Tiefe?</li>
+<li><strong>Denkaufgabe:</strong> Nenne einen Anwendungsfall, in dem Offset-Pagination <em>nötig</em> ist und
+Keyset nicht genügt.</li>
+</ul>
+<h3>2.4 Caching 🟡</h3>
+<ul>
+<li>Führe R5 aus. Erkläre die Notiz „kalt X ms → warm Y ms&quot;.</li>
+<li><strong>Falle:</strong> Was liefert R5 zurück, wenn sich die Daten ändern, der Cache aber nicht geleert
+wird? Verifiziere im Code (<code>ReadService.categoryStats</code> + Test <code>r5CachesUntilEvict</code>).</li>
+</ul>
+<hr>
+<h2>3. Experimente (Parameter verändern) 🟡</h2>
+<p>Miss jeweils <strong>vorher/nachher</strong> und notiere den Effekt.</p>
+<h3>3.1 Batch-Größe</h3>
+<p>In <code>WriteService.BATCH_SIZE</code> (Default 1000) ändern auf 100, dann 5000. Baue neu
+(<code>cit 21</code> bzw. <code>ci 21</code>), miss W3/W4. Wo liegt das Optimum, und warum ist „größer&quot; nicht
+immer besser?</p>
+<h3>3.2 Payload-Länge</h3>
+<p>Seede mit Payload-Länge 0, dann 256. Wie verändert sich der Unterschied zwischen <strong>R0</strong> und
+<strong>R1</strong> (Projektion)? Warum?</p>
+<h3>3.3 Connection-Pool 🔴</h3>
+<p>Setze die Pool-Größe klein: starte den Server mit <code>HIKARI_MAX_POOL=2</code>
+(<code>HIKARI_MAX_POOL=2 java -jar ...</code>). Führe <strong>W7</strong> (parallel) aus.</p>
+<ul>
+<li>Was passiert mit dem Durchsatz? Erkläre den Zusammenhang Pool-Größe ↔ Parallelität.</li>
+</ul>
+<h3>3.4 Lasttest 🔴</h3>
+<p>Führe <code>infra/load/read-load.js</code> mit k6 aus (siehe <code>infra/load/README.md</code>). Erhöhe die
+VU-Zahl (20 → 50 → 100). Ab wann steigt die <strong>p95-Latenz</strong> stark? Vergleiche mit der
+Pool-Größe.</p>
+<hr>
+<h2>4. Erweitern (Code schreiben) 🔴</h2>
+<h3>4.1 Neue Read-Stufe: Filter-Projektion</h3>
+<p>Baue eine Stufe <strong>R1b</strong>, die nur Zeilen einer bestimmten <code>category</code> zurückgibt.</p>
+<ul>
+<li>Server: neue Methode in <code>ReadService</code> + Endpoint in <code>ReadController</code>.</li>
+<li>Client: neue <code>Stage</code> in <code>stages.ts</code>, in <code>STAGES</code> registrieren.</li>
+<li>Test: Integrationstest analog <code>ReadStagesIntegrationTest</code>.</li>
+<li><strong>Definition of Done:</strong> Endpoint funktioniert · Test grün · im Dashboard sichtbar.</li>
+</ul>
+<h3>4.2 Neue Write-Stufe: <code>UPSERT</code></h3>
+<p>Baue eine Stufe, die per <code>INSERT ... ON CONFLICT</code> schreibt (idempotenter Ingest).
+Überlege: Funktioniert <code>reWriteBatchedInserts</code> damit noch? (Tipp: Doku W4 lesen.)</p>
+<h3>4.3 Metrik ergänzen</h3>
+<p>Erweitere das Dashboard um eine Spalte <strong>„Bytes/Zeile&quot;</strong>. Wo im Client (<code>harness.ts</code> /
+<code>ResultsChart.tsx</code>) musst du ansetzen?</p>
+<hr>
+<h2>5. Quiz (zum Abschluss)</h2>
+<ol>
+<li>Nenne die <strong>zwei größten Hebel</strong> im Write-Track und begründe die Reihenfolge.</li>
+<li>Warum ist <strong>reaktiv</strong> (W8/R8) beim Bulk-Insert <em>nicht</em> schneller — und wann <em>ist</em> es die
+richtige Wahl?</li>
+<li>Eine API liefert 50 MB JSON pro Request und ist „zu langsam&quot;. Nenne <strong>drei</strong> verschiedene
+Techniken aus diesem Projekt, um das zu verbessern, mit je einem Satz Trade-off.</li>
+<li>Richtig oder falsch: „Ein größerer Connection-Pool ist immer besser.&quot; Begründe.</li>
+<li>Was misst der Header <code>Server-Timing</code>, und warum reicht er bei der Streaming-Stufe R3
+nicht aus?</li>
+</ol>
+<hr>
+<h2>6. Abgabe / Reflexion</h2>
+<p>Schreibe eine halbe Seite zur Leitfrage des Projekts:</p>
+<blockquote>
+<p><strong>„Warum gibt es kein <em>schneller ist immer besser</em>?&quot;</strong></p>
+</blockquote>
+<p>Belege deine Antwort mit <strong>zwei</strong> konkreten Messungen aus diesem Projekt, bei denen die
+„fortgeschrittenere&quot; Technik <em>nicht</em> die schnellere war — und erkläre den Kontext, in dem
+sie trotzdem die richtige Wahl wäre.</p>
+<hr>
+<p><em>Musterlösungen und Referenzzahlen: siehe die Stufen-Dokumente <code>docs/W0–W8.md</code> und
+<code>docs/R0–R8.md</code> sowie die Integrationstests unter <code>server/src/test/</code>.</em></p>
+</section>
+</body>
+</html>

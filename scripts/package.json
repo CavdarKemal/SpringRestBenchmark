@@ -1,0 +1,13 @@
+{
+  "name": "docs-pdf-builder",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Fuehrt die Markdown-Docs zu einem HTML-Handbuch zusammen (danach via Edge -> PDF).",
+  "scripts": {
+    "build": "node build-docs.mjs"
+  },
+  "dependencies": {
+    "marked": "^14.1.0"
+  }
+}
