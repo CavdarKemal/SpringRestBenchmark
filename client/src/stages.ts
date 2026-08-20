@@ -295,6 +295,93 @@ const r4Stage: Stage = {
   run: () => runRead('r4', r4Stage.label, '/api/read/r4', 'gzip-komprimiert'),
 };
 
+// ---------------------------------------------------------------------------
+//  R2 — Pagination: Offset vs. Keyset (ganze Tabelle seitenweise traversieren)
+// ---------------------------------------------------------------------------
+const R2_PAGE_SIZE = 5000;
+
+/** Baut aus reinen Zahlen (ohne Server-Timing) ein Read-RunResult; Durchsatz aus der Gesamtzeit. */
+function toReadResult(id: string, label: string, rows: number, bytes: number, totalMillis: number, note: string): RunResult {
+  const m: Measurement = { bytes, wireBytes: bytes, totalMillis, ttfbMillis: totalMillis, serverMillis: 0, bodyText: '' };
+  return toRunResult(id, label, 'read', rows, m, note);
+}
+
+async function traverseOffset(id: string, label: string): Promise<RunResult> {
+  let rows = 0;
+  let bytes = 0;
+  let offset = 0;
+  const t0 = performance.now();
+  for (;;) {
+    const resp = await fetch(`/api/read/r2/offset?offset=${offset}&limit=${R2_PAGE_SIZE}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} bei /api/read/r2/offset`);
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    bytes += buf.byteLength;
+    const page = JSON.parse(new TextDecoder().decode(buf)) as unknown[];
+    rows += page.length;
+    if (page.length < R2_PAGE_SIZE) break;
+    offset += R2_PAGE_SIZE;
+  }
+  return toReadResult(id, label, rows, bytes, performance.now() - t0, `Offset-Pagination, Seiten a ${R2_PAGE_SIZE}`);
+}
+
+async function traverseKeyset(id: string, label: string): Promise<RunResult> {
+  let rows = 0;
+  let bytes = 0;
+  let afterId = 0;
+  const t0 = performance.now();
+  for (;;) {
+    const resp = await fetch(`/api/read/r2/keyset?afterId=${afterId}&limit=${R2_PAGE_SIZE}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} bei /api/read/r2/keyset`);
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    bytes += buf.byteLength;
+    const page = JSON.parse(new TextDecoder().decode(buf)) as { id: number }[];
+    rows += page.length;
+    if (page.length < R2_PAGE_SIZE) break;
+    afterId = page[page.length - 1].id;
+  }
+  return toReadResult(id, label, rows, bytes, performance.now() - t0, `Keyset-Pagination, Seiten a ${R2_PAGE_SIZE}`);
+}
+
+const r2OffsetStage: Stage = {
+  id: 'r2-offset',
+  label: 'R2 — Offset-Pagination',
+  track: 'read',
+  description:
+    'Blaettert die ganze Tabelle seitenweise per OFFSET/LIMIT durch. Tiefe Seiten werden zunehmend ' +
+    'langsamer, weil die DB die uebersprungenen Zeilen jedes Mal erneut durchlaeuft — die Gesamtzeit ' +
+    'waechst ueberproportional.',
+  run: () => traverseOffset('r2-offset', r2OffsetStage.label),
+};
+
+const r2KeysetStage: Stage = {
+  id: 'r2-keyset',
+  label: 'R2 — Keyset-Pagination',
+  track: 'read',
+  description:
+    'Dieselbe Traversierung, aber per WHERE id > afterId (Keyset/Seek). Nutzt den Primaerschluessel-Index, ' +
+    'jede Seite ist gleich schnell — unabhaengig von der Tiefe. Der klare Gewinn gegenueber Offset bei ' +
+    'tiefen Seiten.',
+  run: () => traverseKeyset('r2-keyset', r2KeysetStage.label),
+};
+
+// ---------------------------------------------------------------------------
+//  R3 — Server-seitiges Streaming (NDJSON)
+// ---------------------------------------------------------------------------
+const r3Stage: Stage = {
+  id: 'r3',
+  label: 'R3 — NDJSON-Streaming',
+  track: 'read',
+  description:
+    'Der Server streamt die Zeilen ueber einen DB-Cursor als NDJSON (ein JSON-Objekt pro Zeile). Das erste ' +
+    'Byte kommt sehr frueh (niedrige TTFB), der Speicher bleibt konstant — anders als R0/R1, die erst alles ' +
+    'fertig serialisieren und dann senden.',
+  async run(): Promise<RunResult> {
+    const m = await measure('/api/read/r3', { method: 'GET' });
+    const rows = m.bodyText ? m.bodyText.trim().split('\n').filter(Boolean).length : 0;
+    return toRunResult('r3', r3Stage.label, 'read', rows, m, 'NDJSON-Stream, niedrige TTFB');
+  },
+};
+
 /** Alle registrierten Stufen. Reihenfolge = Anzeigereihenfolge im Dashboard. */
 export const STAGES: Stage[] = [
   w0Stage,
@@ -308,6 +395,9 @@ export const STAGES: Stage[] = [
   w8Stage,
   r0Stage,
   r1Stage,
+  r2OffsetStage,
+  r2KeysetStage,
+  r3Stage,
   r4Stage,
   seedStage,
 ];

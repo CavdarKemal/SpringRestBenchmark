@@ -4,9 +4,17 @@ import de.springrest.benchmark.dto.MeasurementDto;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -22,12 +30,22 @@ public class ReadService {
     private static final String PROJECTION_SQL =
             "SELECT id, ts, sensor_id, category, v1 FROM measurements ORDER BY id";
 
+    /** Gemeinsamer RowMapper von einer Projektionszeile auf ein {@link MeasurementDto}. */
+    private static final RowMapper<MeasurementDto> MAPPER = (rs, rowNum) -> new MeasurementDto(
+            rs.getLong("id"),
+            rs.getObject("ts", OffsetDateTime.class),
+            rs.getInt("sensor_id"),
+            rs.getString("category"),
+            rs.getDouble("v1"));
+
     private final MeasurementRepository repository;
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
 
-    public ReadService(MeasurementRepository repository, JdbcTemplate jdbcTemplate) {
+    public ReadService(MeasurementRepository repository, JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.repository = repository;
         this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -42,16 +60,65 @@ public class ReadService {
 
     /**
      * <strong>R1 — DTO-Projektion.</strong> Selektiert nur die benoetigten Spalten und bildet sie auf ein
-     * schlankes {@link MeasurementDto} ab. Gegenueber R0 entfallen {@code v2..v8} und das {@code payload} —
-     * die Nutzlast wird dadurch deutlich kleiner. Zudem werden keine JPA-Entities materialisiert.
+     * schlankes {@link MeasurementDto} ab. Gegenueber R0 entfallen {@code v2..v8} und das {@code payload}.
      */
     @Transactional(readOnly = true)
     public List<MeasurementDto> projection() {
-        return jdbcTemplate.query(PROJECTION_SQL, (rs, rowNum) -> new MeasurementDto(
-                rs.getLong("id"),
-                rs.getObject("ts", OffsetDateTime.class),
-                rs.getInt("sensor_id"),
-                rs.getString("category"),
-                rs.getDouble("v1")));
+        return jdbcTemplate.query(PROJECTION_SQL, MAPPER);
+    }
+
+    /**
+     * <strong>R2 (Offset).</strong> Eine Seite per {@code OFFSET ? LIMIT ?}. Nachteil: Die DB muss die
+     * uebersprungenen Zeilen bei jeder tieferen Seite erneut durchlaufen — der Aufwand waechst mit der
+     * Seitentiefe.
+     */
+    @Transactional(readOnly = true)
+    public List<MeasurementDto> pageByOffset(long offset, int limit) {
+        return jdbcTemplate.query(
+                "SELECT id, ts, sensor_id, category, v1 FROM measurements ORDER BY id OFFSET ? LIMIT ?",
+                MAPPER, offset, limit);
+    }
+
+    /**
+     * <strong>R2 (Keyset/Seek).</strong> Eine Seite per {@code WHERE id > ? ORDER BY id LIMIT ?}. Nutzt den
+     * Primaerschluessel-Index und bleibt <em>unabhaengig von der Seitentiefe</em> konstant schnell.
+     */
+    @Transactional(readOnly = true)
+    public List<MeasurementDto> pageByKeyset(long afterId, int limit) {
+        return jdbcTemplate.query(
+                "SELECT id, ts, sensor_id, category, v1 FROM measurements WHERE id > ? ORDER BY id LIMIT ?",
+                MAPPER, afterId, limit);
+    }
+
+    /**
+     * <strong>R3 — Server-seitiges Streaming (NDJSON).</strong> Schreibt die Projektion Zeile fuer Zeile als
+     * NDJSON (ein JSON-Objekt pro Zeile) in den Ausgabestrom. Ein <em>Server-seitiger Cursor</em>
+     * ({@code fetchSize} + {@code autoCommit=false}) sorgt dafuer, dass immer nur ein kleiner Block im
+     * Speicher liegt — konstanter Speicherbedarf, und das erste Byte erreicht den Client sehr frueh (niedrige
+     * TTFB), statt erst nach dem vollstaendigen Serialisieren wie bei R0/R1.
+     */
+    public void streamNdjson(OutputStream out) {
+        try (Connection connection = jdbcTemplate.getDataSource().getConnection()) {
+            connection.setAutoCommit(false); // Voraussetzung fuer den PostgreSQL-Cursor
+            try (PreparedStatement ps = connection.prepareStatement(
+                    PROJECTION_SQL, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+                ps.setFetchSize(1_000); // blockweise nachladen statt alles auf einmal
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        MeasurementDto dto = new MeasurementDto(
+                                rs.getLong("id"),
+                                rs.getObject("ts", OffsetDateTime.class),
+                                rs.getInt("sensor_id"),
+                                rs.getString("category"),
+                                rs.getDouble("v1"));
+                        out.write(objectMapper.writeValueAsBytes(dto));
+                        out.write('\n');
+                    }
+                }
+            }
+            connection.commit();
+        } catch (SQLException | IOException e) {
+            throw new IllegalStateException("NDJSON-Streaming fehlgeschlagen", e);
+        }
     }
 }

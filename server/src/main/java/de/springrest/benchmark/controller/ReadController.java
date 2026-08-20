@@ -8,7 +8,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
@@ -48,6 +50,34 @@ public class ReadController {
     @GetMapping("/r1")
     public List<MeasurementDto> r1Projection() {
         return readService.projection();
+    }
+
+    /**
+     * <strong>R2 (Offset-Pagination).</strong> Eine Seite per {@code OFFSET/LIMIT}. Tiefe Seiten werden
+     * zunehmend langsamer, weil die DB die uebersprungenen Zeilen erneut durchlaeuft.
+     */
+    @GetMapping("/r2/offset")
+    public List<MeasurementDto> r2Offset(@RequestParam long offset, @RequestParam(defaultValue = "5000") int limit) {
+        return readService.pageByOffset(offset, limit);
+    }
+
+    /**
+     * <strong>R2 (Keyset-Pagination).</strong> Eine Seite per {@code WHERE id > afterId}. Nutzt den Index und
+     * bleibt unabhaengig von der Seitentiefe konstant schnell.
+     */
+    @GetMapping("/r2/keyset")
+    public List<MeasurementDto> r2Keyset(@RequestParam(defaultValue = "0") long afterId,
+                                         @RequestParam(defaultValue = "5000") int limit) {
+        return readService.pageByKeyset(afterId, limit);
+    }
+
+    /**
+     * <strong>R3 — Server-seitiges Streaming (NDJSON).</strong> Streamt die Projektion zeilenweise ueber
+     * einen DB-Cursor. Niedrige TTFB und konstanter Speicher (siehe {@code ReadService.streamNdjson}).
+     */
+    @GetMapping(value = "/r3", produces = "application/x-ndjson")
+    public StreamingResponseBody r3Stream() {
+        return readService::streamNdjson;
     }
 
     /**
