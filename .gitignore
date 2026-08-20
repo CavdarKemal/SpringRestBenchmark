@@ -1,0 +1,25 @@
+# ---- Java / Maven ----
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+
+# ---- Node / React ----
+node_modules/
+client/dist/
+client/.vite/
+*.tsbuildinfo
+
+# ---- Logs / OS ----
+*.log
+.DS_Store
+Thumbs.db
+
+# ---- Env ----
+.env
+.env.local

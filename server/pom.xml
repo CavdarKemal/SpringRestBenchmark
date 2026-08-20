@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        SpringRestBenchmark — Server
+        ============================
+        Lehrprojekt zum Thema "optimaler Datendurchsatz". Jede Optimierungsstufe
+        (W0..W8 für Write, R0..R8 für Read) ist als eigener REST-Endpoint umgesetzt.
+
+        Stack (verifiziert, Stand 2026-08):
+          - Spring Boot 4.1.0  (min. Java 17, hier bewusst Java 21 für Virtual Threads)
+          - Spring Framework 7.0.x, Jakarta EE 11 / Servlet 6.1
+          - PostgreSQL, Flyway für das Schema
+
+        Build:  ci 21   (ohne Tests)      /   cit 21  (mit Tests)
+                -> nutzt JDK 21 + Maven 4. ACHTUNG: "ci 11" funktioniert NICHT (zu alt).
+    -->
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>de.springrest</groupId>
+    <artifactId>benchmark-server</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>SpringRestBenchmark Server</name>
+    <description>Lehrprojekt: Datendurchsatz-Optimierung mit Spring Boot und PostgreSQL</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <testcontainers.version>2.0.5</testcontainers.version>
+    </properties>
+
+    <!--
+        Testcontainers wird vom Spring-Boot-4.1-BOM nicht mehr versionsverwaltet,
+        daher importieren wir die Testcontainers-BOM selbst. So bleiben alle
+        Testcontainers-Artefakte konsistent auf einer Version.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Web-Schicht (Servlet/MVC). Die REST-Endpoints je Benchmark-Stufe. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- JPA/Hibernate + JDBC. Für Baseline (R0/W0) und die JPA-basierten Stufen. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Actuator + Micrometer: Health, Metriken, Speicherverbrauch für das Mess-Harness. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Bean Validation für die Request-DTOs des Datengenerators. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL-Treiber. Enthält auch den CopyManager für die COPY-Stufe (W6). -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+            Flyway: versioniertes DB-Schema. Legt die Tabelle 'measurements' + Indizes an.
+
+            WICHTIG (Spring Boot 4): Die Auto-Konfigurationen wurden in eigene
+            'spring-boot-<tech>'-Module aufgeteilt. 'flyway-core' allein loest KEINE
+            Migration mehr aus; die Autoconfig steckt jetzt in 'spring-boot-flyway'.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Test-Stack: Testcontainers startet ein echtes PostgreSQL im Container. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            MockMvc-Test-Slice. In Spring Boot 4 wurde die Web-MVC-Test-Autoconfig
+            (u. a. @AutoConfigureMockMvc, jetzt Paket
+            org.springframework.boot.webmvc.test.autoconfigure) in ein eigenes Modul
+            ausgelagert und ist NICHT mehr in spring-boot-starter-test enthalten.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

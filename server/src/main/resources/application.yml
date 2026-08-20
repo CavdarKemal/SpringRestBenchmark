@@ -1,0 +1,74 @@
+# ============================================================================
+#  SpringRestBenchmark — Server-Konfiguration
+# ============================================================================
+#  Werte sind bewusst als Ausgangspunkt (Baseline) gewaehlt. Einzelne
+#  Benchmark-Stufen ueberschreiben relevante Einstellungen gezielt, damit der
+#  Effekt einer Optimierung isoliert sichtbar wird (z. B. HikariCP-Sizing in W2).
+# ============================================================================
+
+spring:
+  application:
+    name: spring-rest-benchmark
+
+  # --- Datenbank -----------------------------------------------------------
+  #  Verbindungsdaten passen zur docker-compose.yml unter /infra.
+  #  Ueberschreibbar per Umgebungsvariablen (12-Factor), damit Studenten die
+  #  DB nicht im Code aendern muessen.
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/benchmark}
+    username: ${DB_USER:benchmark}
+    password: ${DB_PASSWORD:benchmark}
+    hikari:
+      # Baseline-Poolgroesse. Stufe W2 zeigt den Effekt einer sinnvollen Groesse.
+      maximum-pool-size: ${HIKARI_MAX_POOL:10}
+      pool-name: benchmark-pool
+
+  # --- JPA / Hibernate -----------------------------------------------------
+  jpa:
+    open-in-view: false            # Anti-Pattern vermeiden; Lazy-Loading klar begrenzen
+    hibernate:
+      ddl-auto: validate           # Schema kommt ausschliesslich von Flyway
+    properties:
+      hibernate:
+        jdbc:
+          # WICHTIG fuer die Batch-Stufen (W3): ohne diesen Wert kein echtes Batching.
+          # Baseline bleibt bewusst unbatched -> per Stufe gezielt gesetzt/gezeigt.
+          batch_size: 0
+        order_inserts: false
+        order_updates: false
+
+  # --- Flyway (Schema-Migration) ------------------------------------------
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+  # --- Virtual Threads -----------------------------------------------------
+  #  Standardmaessig AUS, damit die Baseline auf Plattform-Threads laeuft.
+  #  Stufe W7/R6 schalten Virtual Threads gezielt zu und zeigen den Effekt.
+  threads:
+    virtual:
+      enabled: false
+
+server:
+  port: 8080
+  # HTTP-Antwort-Kompression standardmaessig AUS.
+  # Stufe R4 aktiviert gzip und misst die eingesparten Bytes.
+  compression:
+    enabled: false
+
+# --- Actuator / Metriken ---------------------------------------------------
+#  Health + Metrics + Info werden fuer das Mess-Harness freigegeben.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# --- Logging ---------------------------------------------------------------
+logging:
+  level:
+    root: INFO
+    de.springrest.benchmark: DEBUG
