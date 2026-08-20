@@ -74,6 +74,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- Spring Batch: chunk-orientierter Import fuer Stufe W5 (JobRepository, Reader/Writer). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-batch</artifactId>
+        </dependency>
+
         <!-- Bean Validation für die Request-DTOs des Datengenerators. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

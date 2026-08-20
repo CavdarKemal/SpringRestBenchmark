@@ -5,9 +5,20 @@ import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
 import org.postgresql.PGConnection;
 import org.postgresql.copy.CopyManager;
+import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.job.JobExecution;
+import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.job.parameters.JobParametersBuilder;
+import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.Step;
+import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
+import org.springframework.batch.infrastructure.item.support.ListItemReader;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
@@ -47,12 +58,23 @@ public class WriteService {
     private final MeasurementRepository repository;
     private final JdbcTemplate jdbcTemplate;
     private final JdbcTemplate rewriteJdbcTemplate;
+    private final JobLauncher jobLauncher;
+    private final JobRepository jobRepository;
+    private final PlatformTransactionManager transactionManager;
+    private final JdbcBatchItemWriter<MeasurementRequest> measurementItemWriter;
 
     public WriteService(MeasurementRepository repository, JdbcTemplate jdbcTemplate,
-                        @Qualifier("rewriteJdbcTemplate") JdbcTemplate rewriteJdbcTemplate) {
+                        @Qualifier("rewriteJdbcTemplate") JdbcTemplate rewriteJdbcTemplate,
+                        JobLauncher jobLauncher, JobRepository jobRepository,
+                        PlatformTransactionManager transactionManager,
+                        JdbcBatchItemWriter<MeasurementRequest> measurementItemWriter) {
         this.repository = repository;
         this.jdbcTemplate = jdbcTemplate;
         this.rewriteJdbcTemplate = rewriteJdbcTemplate;
+        this.jobLauncher = jobLauncher;
+        this.jobRepository = jobRepository;
+        this.transactionManager = transactionManager;
+        this.measurementItemWriter = measurementItemWriter;
     }
 
     /** Leert die Tabelle vor einem Lauf (nicht Teil der gemessenen Zeit). */
@@ -121,6 +143,42 @@ public class WriteService {
      */
     public int w4JdbcBatchRewrite(List<MeasurementRequest> rows) {
         return batchInsert(rewriteJdbcTemplate, rows);
+    }
+
+    /**
+     * <strong>W5 — Spring Batch (chunk-orientiert).</strong> Verarbeitet die Zeilen mit einem echten
+     * Spring-Batch-Job: ein {@code ListItemReader} liefert die Zeilen, ein {@link JdbcBatchItemWriter} schreibt
+     * sie chunk-weise (je {@link #BATCH_SIZE}) als JDBC-Batch. Nach jedem Chunk committet Spring Batch und haelt
+     * den Fortschritt im JobRepository fest.
+     *
+     * <p>Durchsatz-technisch liegt W5 in der Naehe von W3 (gleiche Batch-Idee). Der Gewinn ist ein anderer:
+     * <em>Robustheit</em> — Chunk-Commit, Wiederaufsetzbarkeit (Restart), Skip-/Retry-Policies, Monitoring ueber
+     * die Batch-Metadaten. Das ist der Sinn eines Batch-<em>Frameworks</em> gegenueber rohem JDBC.</p>
+     *
+     * <p>Job und Step werden pro Aufruf gebaut, weil die Daten aus dem jeweiligen Request stammen. Jeder Lauf
+     * bekommt eindeutige Job-Parameter, damit Spring Batch ihn als neue Instanz ausfuehrt.</p>
+     */
+    public int w5SpringBatch(List<MeasurementRequest> rows) {
+        Step step = new StepBuilder("w5-import-step", jobRepository)
+                .<MeasurementRequest, MeasurementRequest>chunk(BATCH_SIZE, transactionManager)
+                .reader(new ListItemReader<>(rows))
+                .writer(measurementItemWriter)
+                .build();
+        Job job = new JobBuilder("w5-import-job", jobRepository)
+                .start(step)
+                .build();
+        try {
+            JobExecution execution = jobLauncher.run(job,
+                    new JobParametersBuilder().addLong("run", System.nanoTime()).toJobParameters());
+            if (!"COMPLETED".equals(execution.getStatus().name())) {
+                throw new IllegalStateException("Spring-Batch-Job nicht erfolgreich: " + execution.getStatus());
+            }
+            return rows.size();
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("Spring-Batch-Job fehlgeschlagen", e);
+        }
     }
 
     /**

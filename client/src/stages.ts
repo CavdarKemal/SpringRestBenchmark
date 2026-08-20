@@ -179,6 +179,20 @@ const w4Stage: Stage = {
 };
 
 // ---------------------------------------------------------------------------
+//  W5 — Spring Batch (chunk-orientiert, robust/restartfaehig)
+// ---------------------------------------------------------------------------
+const w5Stage: Stage = {
+  id: 'w5',
+  label: 'W5 — Spring Batch',
+  track: 'write',
+  description:
+    'Chunk-orientierter Import mit einem echten Spring-Batch-Job (ListItemReader + JdbcBatchItemWriter). ' +
+    'Durchsatz aehnlich W3 — der Mehrwert ist Robustheit: Chunk-Commit, Restart, Skip/Retry, Monitoring ueber ' +
+    'die Batch-Metadatentabellen. Zeigt, wann ein Batch-Framework statt rohem JDBC sinnvoll ist.',
+  run: (ctx) => runBulkWrite('w5', w5Stage.label, '/api/write/w5', ctx.rows, ctx.payloadLength),
+};
+
+// ---------------------------------------------------------------------------
 //  W6 — Postgres COPY (nativer Bulk-Load)
 // ---------------------------------------------------------------------------
 const w6Stage: Stage = {
@@ -217,6 +231,7 @@ export const STAGES: Stage[] = [
   w2Stage,
   w3Stage,
   w4Stage,
+  w5Stage,
   w6Stage,
   r0Stage,
   seedStage,

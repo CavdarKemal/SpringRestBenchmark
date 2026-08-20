@@ -88,6 +88,19 @@ public class WriteController {
     }
 
     /**
+     * <strong>W5 — Spring Batch.</strong> Chunk-orientierter Import ueber einen Spring-Batch-Job (robust,
+     * restartfaehig). Durchsatz aehnlich W3; der Mehrwert ist die Framework-Robustheit.
+     */
+    @PostMapping("/w5")
+    public BenchmarkResult w5(@RequestBody List<MeasurementRequest> rows) {
+        writeService.truncate();
+        long start = System.nanoTime();
+        int count = writeService.w5SpringBatch(rows);
+        double millis = elapsedMillis(start);
+        return BenchmarkResult.of("w5-spring-batch", count, millis, count + " Zeilen chunk-weise via Spring Batch");
+    }
+
+    /**
      * <strong>W6 — Postgres COPY.</strong> Nativer Bulk-Load ueber den pgjdbc-CopyManager — der schnellste Weg.
      */
     @PostMapping("/w6")

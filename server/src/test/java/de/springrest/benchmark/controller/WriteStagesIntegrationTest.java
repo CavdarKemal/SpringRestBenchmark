@@ -93,6 +93,18 @@ class WriteStagesIntegrationTest extends AbstractPostgresIT {
     }
 
     @Test
+    @DisplayName("W5 importiert alle Zeilen per Spring-Batch-Job (mehrere Chunks)")
+    void w5PersistsAllRows() throws Exception {
+        // 1500 > BATCH_SIZE (1000) -> zwei Chunks, prueft den chunk-orientierten Ablauf.
+        mockMvc.perform(post("/api/write/w5").contentType(MediaType.APPLICATION_JSON).content(bulkBody(1500)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("w5-spring-batch"))
+                .andExpect(jsonPath("$.rowsProcessed").value(1500));
+
+        assertThat(generator.count()).isEqualTo(1500);
+    }
+
+    @Test
     @DisplayName("W6 laedt alle Zeilen per Postgres COPY")
     void w6PersistsAllRows() throws Exception {
         mockMvc.perform(post("/api/write/w6").contentType(MediaType.APPLICATION_JSON).content(bulkBody(1500)))

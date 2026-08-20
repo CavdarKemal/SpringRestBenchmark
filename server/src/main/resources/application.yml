@@ -42,6 +42,16 @@ spring:
     enabled: true
     baseline-on-migrate: true
 
+  # --- Spring Batch (Stufe W5) ---------------------------------------------
+  #  Das Metadatenschema legt Flyway an (V2), nicht Spring Batch selbst.
+  #  job.enabled=false: Beim Start sollen keine Jobs automatisch laufen — wir
+  #  starten den W5-Job gezielt pro Request ueber den JobLauncher.
+  batch:
+    jdbc:
+      initialize-schema: never
+    job:
+      enabled: false
+
   # --- Virtual Threads -----------------------------------------------------
   #  Standardmaessig AUS, damit die Baseline auf Plattform-Threads laeuft.
   #  Stufe W7/R6 schalten Virtual Threads gezielt zu und zeigen den Effekt.

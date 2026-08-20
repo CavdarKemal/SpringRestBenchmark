@@ -13,7 +13,7 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | W2 | Alle Zeilen in EINER Transaktion (1 Commit) | `@Transactional` | [W2.md](W2.md) ✅ |
 | W3 | JDBC-Batch-INSERT (`batchUpdate`) | Spring JDBC | [W3.md](W3.md) ✅ |
 | W4 | Batch + `reWriteBatchedInserts=true` | pgjdbc | [W4.md](W4.md) ✅ |
-| W5 | Chunk-orientierter Import | Spring Batch | _offen_ |
+| W5 | Chunk-orientierter Import | Spring Batch | [W5.md](W5.md) ✅ |
 | W6 | Bulk-Load per `COPY` | pgjdbc CopyManager | [W6.md](W6.md) ✅ |
 | W7 | Parallel-Ingest + Pool-Sizing | Virtual Threads + HikariCP | _offen_ |
 | W8 | Reactive Ingest mit Backpressure | WebFlux + R2DBC | _offen_ |
