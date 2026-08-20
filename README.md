@@ -82,6 +82,6 @@ Siehe [docs/README.md](docs/README.md) für den vollständigen Stufenplan
 |-----------|--------|--------|
 | **M0** | Fundament: Infra, Server-Skelett, Mess-Harness, Client | ✅ fertig |
 | **M1** | Baselines R0 + W0 (bewusst naiv) | ✅ fertig |
-| **M2** | Write-Track W1–W8 | offen |
+| **M2** | Write-Track W1–W8 | ✅ fertig |
 | **M3** | Read-Track R1–R8 | offen |
 | **M4** | Client-Rendering + Vergleichs-Dashboard | offen |

@@ -31,6 +31,9 @@ const W0_MAX_ROWS = 2000;
 /** Obergrenze fuer W1: N Einzel-Commits sind langsam; fuer die Lektion reichen 20 000. */
 const W1_MAX_ROWS = 20_000;
 
+/** Obergrenze fuer W8: reaktiver R2DBC-Bulk-Insert ist langsam; 20 000 genuegen fuer die Lektion. */
+const W8_MAX_ROWS = 20_000;
+
 /**
  * Gemeinsamer Ablauf fuer Bulk-Write-Stufen (W1..W6): baut N Zeilen im Client, schickt
  * sie in EINEM Request und liest die reine Server-Insert-Zeit aus dem Envelope.
@@ -206,6 +209,35 @@ const w6Stage: Stage = {
 };
 
 // ---------------------------------------------------------------------------
+//  W7 — Parallel-Ingest ueber Virtual Threads (+ groesserer Pool)
+// ---------------------------------------------------------------------------
+const w7Stage: Stage = {
+  id: 'w7',
+  label: 'W7 — Parallel (VThreads)',
+  track: 'write',
+  description:
+    'Teilt die Zeilen in Partitionen und fuegt sie gleichzeitig ueber mehrere DB-Verbindungen ein ' +
+    '(Virtual-Thread-pro-Task). Erst mit genug Verbindungen im Pool bringt die Parallelitaet ihren ' +
+    'Nutzen — deshalb nutzt diese Stufe einen groesseren Pool (16). Zeigt Parallelitaet + Pool-Sizing.',
+  run: (ctx) => runBulkWrite('w7', w7Stage.label, '/api/write/w7', ctx.rows, ctx.payloadLength),
+};
+
+// ---------------------------------------------------------------------------
+//  W8 — Reaktiver Ingest ueber R2DBC (nicht-blockierend, Backpressure)
+// ---------------------------------------------------------------------------
+const w8Stage: Stage = {
+  id: 'w8',
+  label: 'W8 — R2DBC reaktiv',
+  track: 'write',
+  description:
+    'Nicht-blockierender Insert-Pfad ueber R2DBC: Die Zeilen laufen als reaktiver Strom in Chunks, die ' +
+    'gleichzeitigen Inserts sind begrenzt (Backpressure). Reaktiv glaenzt bei hoher Nebenlaeufigkeit/IO — ' +
+    'beim rohen Bulk-Durchsatz bleibt COPY (W6) klar vorn (hier sogar am langsamsten). Anderes ' +
+    `Programmiermodell, kein Turbo-Knopf. Auf ${W8_MAX_ROWS} Zeilen begrenzt.`,
+  run: (ctx) => runBulkWrite('w8', w8Stage.label, '/api/write/w8', ctx.rows, ctx.payloadLength, W8_MAX_ROWS),
+};
+
+// ---------------------------------------------------------------------------
 //  R0 — Read-Baseline: findAll() -> komplette Tabelle als JSON
 // ---------------------------------------------------------------------------
 const r0Stage: Stage = {
@@ -233,6 +265,8 @@ export const STAGES: Stage[] = [
   w4Stage,
   w5Stage,
   w6Stage,
+  w7Stage,
+  w8Stage,
   r0Stage,
   seedStage,
 ];

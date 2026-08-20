@@ -112,6 +112,31 @@ public class WriteController {
         return BenchmarkResult.of("w6-copy", count, millis, count + " Zeilen via Postgres COPY (CSV)");
     }
 
+    /**
+     * <strong>W7 — Parallel-Ingest ueber Virtual Threads.</strong> Verteilt den Batch-Ingest auf mehrere
+     * Verbindungen gleichzeitig; hier wird die Groesse des Connection-Pools zum entscheidenden Faktor.
+     */
+    @PostMapping("/w7")
+    public BenchmarkResult w7(@RequestBody List<MeasurementRequest> rows) {
+        writeService.truncate();
+        long start = System.nanoTime();
+        int count = writeService.w7ParallelIngest(rows);
+        double millis = elapsedMillis(start);
+        return BenchmarkResult.of("w7-parallel-vthreads", count, millis, count + " Zeilen parallel (Virtual Threads)");
+    }
+
+    /**
+     * <strong>W8 — Reaktiver Ingest ueber R2DBC.</strong> Nicht-blockierender Insert-Pfad mit Backpressure.
+     */
+    @PostMapping("/w8")
+    public BenchmarkResult w8(@RequestBody List<MeasurementRequest> rows) {
+        writeService.truncate();
+        long start = System.nanoTime();
+        int count = writeService.w8ReactiveIngest(rows);
+        double millis = elapsedMillis(start);
+        return BenchmarkResult.of("w8-r2dbc-reactive", count, millis, count + " Zeilen reaktiv via R2DBC");
+    }
+
     private static double elapsedMillis(long startNanos) {
         return (System.nanoTime() - startNanos) / 1_000_000.0;
     }

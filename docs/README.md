@@ -15,8 +15,8 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | W4 | Batch + `reWriteBatchedInserts=true` | pgjdbc | [W4.md](W4.md) ✅ |
 | W5 | Chunk-orientierter Import | Spring Batch | [W5.md](W5.md) ✅ |
 | W6 | Bulk-Load per `COPY` | pgjdbc CopyManager | [W6.md](W6.md) ✅ |
-| W7 | Parallel-Ingest + Pool-Sizing | Virtual Threads + HikariCP | _offen_ |
-| W8 | Reactive Ingest mit Backpressure | WebFlux + R2DBC | _offen_ |
+| W7 | Parallel-Ingest + Pool-Sizing | Virtual Threads + HikariCP | [W7.md](W7.md) ✅ |
+| W8 | Reactive Ingest mit Backpressure | R2DBC (Reactor) | [W8.md](W8.md) ✅ |
 
 > Reihenfolge gegenüber dem ursprünglichen Plan leicht verfeinert, damit jede Stufe einen
 > messbaren Effekt zeigt (Transaktionsgrenze vor Pool-Tuning; Pool-Sizing dort, wo unter

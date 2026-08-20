@@ -3,6 +3,14 @@ package de.springrest.benchmark.service;
 import de.springrest.benchmark.dto.MeasurementRequest;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
+import com.zaxxer.hikari.HikariDataSource;
+import io.r2dbc.pool.ConnectionPool;
+import io.r2dbc.pool.ConnectionPoolConfiguration;
+import io.r2dbc.spi.ConnectionFactories;
+import io.r2dbc.spi.ConnectionFactory;
+import io.r2dbc.spi.ConnectionFactoryOptions;
+import io.r2dbc.spi.Statement;
+import jakarta.annotation.PreDestroy;
 import org.postgresql.PGConnection;
 import org.postgresql.copy.CopyManager;
 import org.springframework.batch.core.job.Job;
@@ -20,6 +28,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -30,7 +40,12 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Geschaeftslogik der schreibenden Benchmark-Stufen (W0..W8).
@@ -55,26 +70,79 @@ public class WriteService {
     /** Zeilen pro Batch-Chunk. Bewusster Kompromiss aus Treiber-Speicher und Round-Trip-Ersparnis. */
     private static final int BATCH_SIZE = 1_000;
 
+    /** Gleiches INSERT wie {@link #INSERT_SQL}, aber mit R2DBC-Platzhaltern ($1..$12) fuer Stufe W8. */
+    private static final String INSERT_SQL_R2DBC = """
+            INSERT INTO measurements (ts, sensor_id, category, v1, v2, v3, v4, v5, v6, v7, v8, payload)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            """;
+
+    /** Maximal gleichzeitig laufende Chunk-Inserts in W8 — begrenzt den In-Flight-Druck (Backpressure). */
+    private static final int R2DBC_CONCURRENCY = 8;
+
+    /** Anzahl paralleler Tasks fuer den Ingest in Stufe W7. */
+    private static final int PARALLELISM = 8;
+
     private final MeasurementRepository repository;
     private final JdbcTemplate jdbcTemplate;
     private final JdbcTemplate rewriteJdbcTemplate;
+    private final JdbcTemplate parallelJdbcTemplate;
     private final JobLauncher jobLauncher;
     private final JobRepository jobRepository;
     private final PlatformTransactionManager transactionManager;
     private final JdbcBatchItemWriter<MeasurementRequest> measurementItemWriter;
+    private final ConnectionFactory connectionFactory;
 
     public WriteService(MeasurementRepository repository, JdbcTemplate jdbcTemplate,
                         @Qualifier("rewriteJdbcTemplate") JdbcTemplate rewriteJdbcTemplate,
+                        @Qualifier("parallelJdbcTemplate") JdbcTemplate parallelJdbcTemplate,
                         JobLauncher jobLauncher, JobRepository jobRepository,
                         PlatformTransactionManager transactionManager,
                         JdbcBatchItemWriter<MeasurementRequest> measurementItemWriter) {
         this.repository = repository;
         this.jdbcTemplate = jdbcTemplate;
         this.rewriteJdbcTemplate = rewriteJdbcTemplate;
+        this.parallelJdbcTemplate = parallelJdbcTemplate;
         this.jobLauncher = jobLauncher;
         this.jobRepository = jobRepository;
         this.transactionManager = transactionManager;
         this.measurementItemWriter = measurementItemWriter;
+        // WICHTIG: Die ConnectionFactory ist bewusst KEINE Spring-Bean. Denn Boots
+        // DataSourceAutoConfiguration ist @ConditionalOnMissingBean(ConnectionFactory) und wuerde die
+        // JDBC-DataSource abschalten, sobald eine ConnectionFactory-Bean existiert. Als privates Feld
+        // (aus der JDBC-DataSource abgeleitet) umgehen wir diese Reactive-First-Heuristik.
+        this.connectionFactory = buildConnectionFactory(jdbcTemplate.getDataSource());
+    }
+
+    /**
+     * Baut die reaktive {@link ConnectionFactory} aus der primaeren JDBC-DataSource: aus deren
+     * {@code jdbc:postgresql://host:port/db?..}-URL wird die passende {@code r2dbc:postgresql://host:port/db}-URL.
+     * So zeigt R2DBC garantiert auf dieselbe Datenbank wie JPA/JDBC — in Produktion wie im Testcontainer.
+     */
+    private static ConnectionFactory buildConnectionFactory(DataSource dataSource) {
+        HikariDataSource source = (HikariDataSource) dataSource;
+        String jdbcUrl = source.getJdbcUrl();
+        String withoutPrefix = jdbcUrl.substring("jdbc:".length());
+        int queryIndex = withoutPrefix.indexOf('?');
+        if (queryIndex >= 0) {
+            withoutPrefix = withoutPrefix.substring(0, queryIndex);
+        }
+        String r2dbcUrl = "r2dbc:" + withoutPrefix;
+
+        ConnectionFactoryOptions options = ConnectionFactoryOptions.builder()
+                .from(ConnectionFactoryOptions.parse(r2dbcUrl))
+                .option(ConnectionFactoryOptions.USER, source.getUsername())
+                .option(ConnectionFactoryOptions.PASSWORD, source.getPassword())
+                .build();
+        ConnectionFactory base = ConnectionFactories.get(options);
+        return new ConnectionPool(ConnectionPoolConfiguration.builder(base).maxSize(16).build());
+    }
+
+    /** Schliesst den reaktiven Verbindungspool beim Herunterfahren. */
+    @PreDestroy
+    public void closeConnectionFactory() {
+        if (connectionFactory instanceof ConnectionPool pool) {
+            pool.dispose();
+        }
     }
 
     /** Leert die Tabelle vor einem Lauf (nicht Teil der gemessenen Zeit). */
@@ -199,6 +267,110 @@ public class WriteService {
             return (int) copied;
         } catch (SQLException | IOException e) {
             throw new IllegalStateException("COPY fehlgeschlagen", e);
+        }
+    }
+
+    /**
+     * <strong>W7 — Parallel-Ingest ueber Virtual Threads.</strong> Die Zeilen werden in {@link #PARALLELISM}
+     * Partitionen aufgeteilt und gleichzeitig ueber mehrere DB-Verbindungen eingefuegt (jede Partition als
+     * JDBC-Batch mit {@code reWriteBatchedInserts=true}). Ausgefuehrt wird das auf einem
+     * Virtual-Thread-pro-Task-Executor — leichtgewichtige Nebenlaeufigkeit ohne Thread-Pool-Grenzen.
+     *
+     * <p>Lektion: Parallelitaet hilft nur, wenn der Connection-Pool genug Verbindungen bietet. Deshalb nutzt
+     * diese Stufe einen eigenen Pool (Groesse 16 &gt;= Parallelitaet). Ein zu kleiner Pool wuerde die Tasks
+     * serialisieren und den Vorteil zunichtemachen.</p>
+     */
+    public int w7ParallelIngest(List<MeasurementRequest> rows) {
+        List<List<MeasurementRequest>> partitions = partition(rows, PARALLELISM);
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Integer>> futures = new ArrayList<>();
+            for (List<MeasurementRequest> part : partitions) {
+                if (!part.isEmpty()) {
+                    futures.add(executor.submit(() -> batchInsert(parallelJdbcTemplate, part)));
+                }
+            }
+            int total = 0;
+            for (Future<Integer> future : futures) {
+                total += future.get();
+            }
+            return total;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Parallel-Ingest wurde unterbrochen", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Parallel-Ingest fehlgeschlagen", e.getCause());
+        }
+    }
+
+    /** Teilt die Zeilen in etwa gleich grosse Partitionen (ohne Kopieren, ueber {@code subList}). */
+    private static List<List<MeasurementRequest>> partition(List<MeasurementRequest> rows, int parts) {
+        List<List<MeasurementRequest>> result = new ArrayList<>();
+        int total = rows.size();
+        int chunkSize = Math.max(1, (total + parts - 1) / parts);
+        for (int i = 0; i < total; i += chunkSize) {
+            result.add(rows.subList(i, Math.min(i + chunkSize, total)));
+        }
+        return result;
+    }
+
+    /**
+     * <strong>W8 — Reaktiver Ingest ueber R2DBC.</strong> Nicht-blockierender DB-Zugriff: Die Zeilen werden
+     * als reaktiver Strom (Reactor {@code Flux}) in Chunks gebuendelt und ueber R2DBC eingefuegt. Die
+     * gleichzeitig laufenden Chunk-Inserts sind auf {@link #R2DBC_CONCURRENCY} begrenzt — das ist die
+     * <em>Backpressure</em>: Der Verbraucher (DB) diktiert das Tempo, der Produzent ueberrennt ihn nicht.
+     *
+     * <p>Weil dieser Endpoint in der (blockierenden) MVC-Welt lebt, wird am Ende einmal {@code block()}
+     * aufgerufen, um das Ergebnis einzusammeln. Der eigentliche Insert-Pfad ist aber vollstaendig reaktiv.</p>
+     *
+     * <p>Lektion: Reaktiv/R2DBC glaenzt bei hoher Nebenlaeufigkeit und I/O-Wartezeiten, nicht unbedingt beim
+     * rohen Bulk-Durchsatz (dort bleibt COPY vorn). Es ist ein anderes Programmiermodell, kein Turbo-Knopf.</p>
+     */
+    public int w8ReactiveIngest(List<MeasurementRequest> rows) {
+        Long inserted = Flux.fromIterable(rows)
+                .buffer(BATCH_SIZE)
+                .flatMap(this::insertChunkReactive, R2DBC_CONCURRENCY)
+                .reduce(0L, Long::sum)
+                .block();
+        return inserted != null ? inserted.intValue() : 0;
+    }
+
+    /** Fuegt einen Chunk als ein R2DBC-Batch ein und schliesst die Verbindung reaktiv wieder. */
+    private Mono<Long> insertChunkReactive(List<MeasurementRequest> chunk) {
+        return Mono.usingWhen(
+                connectionFactory.create(),
+                connection -> {
+                    Statement statement = connection.createStatement(INSERT_SQL_R2DBC);
+                    for (int i = 0; i < chunk.size(); i++) {
+                        bindRowReactive(statement, chunk.get(i));
+                        if (i < chunk.size() - 1) {
+                            statement.add();
+                        }
+                    }
+                    return Flux.from(statement.execute())
+                            .flatMap(result -> Mono.from(result.getRowsUpdated()))
+                            .reduce(0L, Long::sum);
+                },
+                connection -> connection.close());
+    }
+
+    /** Bindet eine Zeile positionsbasiert an die R2DBC-Platzhalter ($1..$12). */
+    private void bindRowReactive(Statement statement, MeasurementRequest r) {
+        OffsetDateTime ts = r.ts() != null ? r.ts() : OffsetDateTime.now(ZoneOffset.UTC);
+        statement.bind(0, ts);
+        statement.bind(1, r.sensorId());
+        statement.bind(2, r.category());
+        statement.bind(3, r.v1());
+        statement.bind(4, r.v2());
+        statement.bind(5, r.v3());
+        statement.bind(6, r.v4());
+        statement.bind(7, r.v5());
+        statement.bind(8, r.v6());
+        statement.bind(9, r.v7());
+        statement.bind(10, r.v8());
+        if (r.payload() != null) {
+            statement.bind(11, r.payload());
+        } else {
+            statement.bindNull(11, String.class);
         }
     }
 

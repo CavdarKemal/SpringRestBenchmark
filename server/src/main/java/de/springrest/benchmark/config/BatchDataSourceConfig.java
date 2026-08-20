@@ -60,4 +60,25 @@ public class BatchDataSourceConfig {
         rewrite.setPoolName("rewrite-pool");
         return new JdbcTemplate(rewrite);
     }
+
+    /**
+     * JdbcTemplate fuer den parallelen Ingest (Stufe W7). Bewusst mit einem <em>groesseren</em> Pool
+     * (16) und {@code reWriteBatchedInserts=true}: Erst wenn der Pool mindestens so viele Verbindungen
+     * bietet wie parallele Tasks laufen, bringt die Parallelitaet ihren vollen Nutzen. Genau dieser
+     * Zusammenhang (Pool-Groesse ↔ Parallelitaet) ist die Lektion von W7.
+     */
+    @Bean("parallelJdbcTemplate")
+    public JdbcTemplate parallelJdbcTemplate(DataSource primary) {
+        HikariDataSource source = (HikariDataSource) primary;
+        String url = source.getJdbcUrl();
+        String rewriteUrl = url + (url.contains("?") ? "&" : "?") + "reWriteBatchedInserts=true";
+
+        HikariDataSource parallel = new HikariDataSource();
+        parallel.setJdbcUrl(rewriteUrl);
+        parallel.setUsername(source.getUsername());
+        parallel.setPassword(source.getPassword());
+        parallel.setMaximumPoolSize(16);
+        parallel.setPoolName("parallel-pool");
+        return new JdbcTemplate(parallel);
+    }
 }

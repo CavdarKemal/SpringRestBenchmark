@@ -80,6 +80,24 @@
             <artifactId>spring-boot-starter-batch</artifactId>
         </dependency>
 
+        <!--
+            R2DBC (Stufe W8): reaktiver, nicht-blockierender DB-Zugriff. Bewusst OHNE
+            spring-boot-starter-data-r2dbc: Wir bauen die ConnectionFactory selbst aus der
+            primaeren DataSource (siehe BatchDataSourceConfig). Das vermeidet die Kollision
+            zwischen JDBC- und R2DBC-@ServiceConnection-Wiring in den Testcontainers-Tests
+            und macht die R2DBC-Verbindung unabhaengig von spring.r2dbc-Properties.
+            r2dbc-pool bringt r2dbc-spi und reactor-core transitiv mit.
+        -->
+        <dependency>
+            <groupId>io.r2dbc</groupId>
+            <artifactId>r2dbc-pool</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>r2dbc-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- Bean Validation für die Request-DTOs des Datengenerators. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

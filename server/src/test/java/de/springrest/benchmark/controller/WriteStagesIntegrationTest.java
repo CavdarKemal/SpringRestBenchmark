@@ -131,6 +131,30 @@ class WriteStagesIntegrationTest extends AbstractPostgresIT {
     }
 
     @Test
+    @DisplayName("W7 fuegt alle Zeilen parallel ueber Virtual Threads ein")
+    void w7PersistsAllRows() throws Exception {
+        // 1500 Zeilen -> in 8 Partitionen parallel; die Summe muss stimmen.
+        mockMvc.perform(post("/api/write/w7").contentType(MediaType.APPLICATION_JSON).content(bulkBody(1500)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("w7-parallel-vthreads"))
+                .andExpect(jsonPath("$.rowsProcessed").value(1500));
+
+        assertThat(generator.count()).isEqualTo(1500);
+    }
+
+    @Test
+    @DisplayName("W8 fuegt alle Zeilen reaktiv ueber R2DBC ein")
+    void w8PersistsAllRows() throws Exception {
+        // 1500 > BATCH_SIZE -> mehrere Chunks im reaktiven Strom.
+        mockMvc.perform(post("/api/write/w8").contentType(MediaType.APPLICATION_JSON).content(bulkBody(1500)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("w8-r2dbc-reactive"))
+                .andExpect(jsonPath("$.rowsProcessed").value(1500));
+
+        assertThat(generator.count()).isEqualTo(1500);
+    }
+
+    @Test
     @DisplayName("Jede Bulk-Stufe leert die Tabelle vorher (fairer Start)")
     void bulkStagesTruncateFirst() throws Exception {
         generator.generate(100, true, 0);
