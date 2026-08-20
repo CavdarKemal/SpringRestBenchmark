@@ -52,6 +52,10 @@ spring:
     job:
       enabled: false
 
+  # --- Cache (Stufe R5) ----------------------------------------------------
+  cache:
+    type: caffeine
+
   # --- Virtual Threads -----------------------------------------------------
   #  Standardmaessig AUS, damit die Baseline auf Plattform-Threads laeuft.
   #  Stufe W7/R6 schalten Virtual Threads gezielt zu und zeigen den Effekt.

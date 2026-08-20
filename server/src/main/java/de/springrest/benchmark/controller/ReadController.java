@@ -1,5 +1,7 @@
 package de.springrest.benchmark.controller;
 
+import de.springrest.benchmark.dto.BenchmarkResult;
+import de.springrest.benchmark.dto.CategoryStat;
 import de.springrest.benchmark.dto.MeasurementDto;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.service.ReadService;
@@ -7,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -101,5 +104,33 @@ public class ReadController {
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header("X-Wire-Bytes", String.valueOf(compressed.length))
                 .body(compressed);
+    }
+
+    /**
+     * <strong>R5 — Caching.</strong> Teure Aggregat-Abfrage, deren Ergebnis gecacht wird. Erster Aufruf ist
+     * „kalt" (DB), weitere sind „warm" (Cache). Mit {@link #r5Evict()} laesst sich der Cache zuruecksetzen.
+     */
+    @GetMapping("/r5")
+    public List<CategoryStat> r5CategoryStats() {
+        return readService.categoryStats();
+    }
+
+    /** Leert den R5-Cache (fuer einen erneuten „kalten" Lauf). */
+    @PostMapping("/r5/evict")
+    public void r5Evict() {
+        readService.evictCategoryStats();
+    }
+
+    /**
+     * <strong>R6 — Parallel-Queries.</strong> Fuehrt mehrere unabhaengige Abfragen aus — seriell oder parallel
+     * (Virtual Threads). Liefert die reine Serverzeit im Envelope zurueck.
+     */
+    @GetMapping("/r6")
+    public BenchmarkResult r6Dashboard(@RequestParam(defaultValue = "false") boolean parallel) {
+        long start = System.nanoTime();
+        int queries = readService.dashboard(parallel);
+        double millis = (System.nanoTime() - start) / 1_000_000.0;
+        String stage = parallel ? "r6-parallel" : "r6-sequential";
+        return BenchmarkResult.of(stage, queries, millis, queries + " Abfragen " + (parallel ? "parallel" : "seriell"));
     }
 }

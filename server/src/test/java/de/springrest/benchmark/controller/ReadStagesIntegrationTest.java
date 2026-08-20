@@ -1,7 +1,9 @@
 package de.springrest.benchmark.controller;
 
 import de.springrest.benchmark.AbstractPostgresIT;
+import de.springrest.benchmark.dto.CategoryStat;
 import de.springrest.benchmark.service.DataGeneratorService;
+import de.springrest.benchmark.service.ReadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,9 @@ class ReadStagesIntegrationTest extends AbstractPostgresIT {
 
     @Autowired
     DataGeneratorService generator;
+
+    @Autowired
+    ReadService readService;
 
     @BeforeEach
     void seed() {
@@ -82,6 +87,40 @@ class ReadStagesIntegrationTest extends AbstractPostgresIT {
 
         long lines = body.lines().filter(line -> !line.isBlank()).count();
         assertThat(lines).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("R5 cacht das Aggregat: bleibt trotz neuer Daten stabil, bis der Cache geleert wird")
+    void r5CachesUntilEvict() {
+        readService.evictCategoryStats();
+        generator.generate(200, true, 0);
+        assertThat(totalCount(readService.categoryStats())).isEqualTo(200);
+
+        // Datenbestand aendern OHNE Evict -> R5 liefert weiter den gecachten (alten) Stand.
+        generator.generate(50, true, 0);
+        assertThat(totalCount(readService.categoryStats())).isEqualTo(200);
+
+        // Nach Evict wird wieder frisch aus der DB gelesen.
+        readService.evictCategoryStats();
+        assertThat(totalCount(readService.categoryStats())).isEqualTo(50);
+    }
+
+    @Test
+    @DisplayName("R6 fuehrt seriell und parallel jeweils 8 Abfragen aus")
+    void r6RunsQueries() throws Exception {
+        mockMvc.perform(get("/api/read/r6").param("parallel", "false"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("r6-sequential"))
+                .andExpect(jsonPath("$.rowsProcessed").value(8));
+
+        mockMvc.perform(get("/api/read/r6").param("parallel", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stage").value("r6-parallel"))
+                .andExpect(jsonPath("$.rowsProcessed").value(8));
+    }
+
+    private static long totalCount(java.util.List<CategoryStat> stats) {
+        return stats.stream().mapToLong(CategoryStat::count).sum();
     }
 
     @Test

@@ -31,8 +31,8 @@ Code-Walkthrough · gemessene Zahlen · Fallstricke/Trade-offs.*
 | R2 | Pagination: Offset → Keyset/Seek | Spring JDBC | [R2.md](R2.md) ✅ |
 | R3 | Server-seitiges Streaming (NDJSON, Cursor) | StreamingResponseBody | [R3.md](R3.md) ✅ |
 | R4 | HTTP-Kompression (gzip) | manuelle gzip-Kompression | [R4.md](R4.md) ✅ |
-| R5 | Caching | Spring Cache + Caffeine | _offen_ |
-| R6 | Async/Parallel-Queries | Virtual Threads | _offen_ |
+| R5 | Caching | Spring Cache + Caffeine | [R5.md](R5.md) ✅ |
+| R6 | Async/Parallel-Queries | Virtual Threads | [R6.md](R6.md) ✅ |
 | R7 | Binärformat statt JSON | Protobuf/MessagePack | _offen_ |
 | R8 | Reactive End-to-End + SSE | WebFlux + R2DBC | _offen_ |
 

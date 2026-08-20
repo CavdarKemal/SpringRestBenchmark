@@ -80,6 +80,16 @@
             <artifactId>spring-boot-starter-batch</artifactId>
         </dependency>
 
+        <!-- Caching (Stufe R5): Spring Cache-Abstraktion + Caffeine als In-Memory-Cache. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
         <!--
             R2DBC (Stufe W8): reaktiver, nicht-blockierender DB-Zugriff. Bewusst OHNE
             spring-boot-starter-data-r2dbc: Wir bauen die ConnectionFactory selbst aus der

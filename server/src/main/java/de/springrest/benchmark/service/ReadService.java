@@ -1,8 +1,11 @@
 package de.springrest.benchmark.service;
 
+import de.springrest.benchmark.dto.CategoryStat;
 import de.springrest.benchmark.dto.MeasurementDto;
 import de.springrest.benchmark.entity.Measurement;
 import de.springrest.benchmark.repository.MeasurementRepository;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -16,7 +19,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Geschaeftslogik der lesenden Benchmark-Stufen (R0..R8).
@@ -120,5 +128,74 @@ public class ReadService {
         } catch (SQLException | IOException e) {
             throw new IllegalStateException("NDJSON-Streaming fehlgeschlagen", e);
         }
+    }
+
+    /**
+     * <strong>R5 — Caching.</strong> Eine bewusst teure Gruppierungsabfrage (Aggregat je Kategorie ueber alle
+     * Zeilen). Dank {@link Cacheable} wird das Ergebnis nach dem ersten Aufruf aus dem Caffeine-Cache bedient —
+     * die DB wird bei Wiederholungen gar nicht mehr befragt.
+     */
+    @Cacheable("categoryStats")
+    public List<CategoryStat> categoryStats() {
+        return jdbcTemplate.query(
+                "SELECT category, count(*) AS cnt, avg(v1) AS a, min(v1) AS mn, max(v1) AS mx "
+                        + "FROM measurements GROUP BY category ORDER BY category",
+                (rs, rowNum) -> new CategoryStat(
+                        rs.getString("category"),
+                        rs.getLong("cnt"),
+                        rs.getDouble("a"),
+                        rs.getDouble("mn"),
+                        rs.getDouble("mx")));
+    }
+
+    /** Leert den R5-Cache, damit der naechste Aufruf wieder „kalt" (aus der DB) laeuft. */
+    @CacheEvict(value = "categoryStats", allEntries = true)
+    public void evictCategoryStats() {
+        // Body absichtlich leer — die Annotation erledigt das Evict.
+    }
+
+    /**
+     * <strong>R6 — Parallel-Queries.</strong> Ein „Dashboard" fuehrt mehrere <em>unabhaengige</em> Abfragen aus.
+     * Seriell summiert sich deren Zeit; parallel (ein Virtual Thread je Abfrage) zaehlt nur die langsamste.
+     *
+     * @param parallel {@code true} = alle Abfragen gleichzeitig ueber Virtual Threads, sonst nacheinander
+     * @return Anzahl ausgefuehrter Abfragen
+     */
+    public int dashboard(boolean parallel) {
+        int queryCount = 8;
+        if (!parallel) {
+            for (int part = 0; part < queryCount; part++) {
+                aggregatePartition(part);
+            }
+            return queryCount;
+        }
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Long>> futures = new ArrayList<>();
+            for (int part = 0; part < queryCount; part++) {
+                int p = part;
+                futures.add(executor.submit(() -> aggregatePartition(p)));
+            }
+            for (Future<Long> future : futures) {
+                future.get();
+            }
+            return queryCount;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Parallel-Queries unterbrochen", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Parallel-Queries fehlgeschlagen", e.getCause());
+        }
+    }
+
+    /** Eine bewusst nicht-indizierte Aggregat-Abfrage (Full-Scan je Partition) — Kandidat fuer Parallelitaet. */
+    private long aggregatePartition(int part) {
+        Long count = jdbcTemplate.query(
+                "SELECT count(*) AS c, avg(v1), min(v1), max(v1) FROM measurements WHERE sensor_id % 8 = ?",
+                rs -> {
+                    rs.next();
+                    return rs.getLong("c");
+                },
+                part);
+        return count != null ? count : 0L;
     }
 }

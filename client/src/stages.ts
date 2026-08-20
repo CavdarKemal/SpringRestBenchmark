@@ -382,6 +382,56 @@ const r3Stage: Stage = {
   },
 };
 
+// ---------------------------------------------------------------------------
+//  R5 — Caching (Caffeine): kalt (DB) vs. warm (Cache)
+// ---------------------------------------------------------------------------
+const r5Stage: Stage = {
+  id: 'r5',
+  label: 'R5 — Caching',
+  track: 'read',
+  description:
+    'Eine teure Aggregat-Abfrage, deren Ergebnis gecacht wird. Dieser Lauf leert erst den Cache, misst den ' +
+    'KALTEN Aufruf (DB) und dann den WARMEN (Cache). Die Server-ms-Spalte zeigt den warmen Wert; die Notiz ' +
+    'nennt beide. Bei Wiederholung wird die DB gar nicht mehr befragt.',
+  async run(): Promise<RunResult> {
+    await fetch('/api/read/r5/evict', { method: 'POST' });
+    const cold = await measure('/api/read/r5', { method: 'GET' });
+    const warm = await measure('/api/read/r5', { method: 'GET' });
+    const rows = warm.bodyText ? (JSON.parse(warm.bodyText) as unknown[]).length : 0;
+    return toRunResult('r5', r5Stage.label, 'read', rows, warm,
+      `kalt ${cold.serverMillis.toFixed(0)}ms -> warm ${warm.serverMillis.toFixed(0)}ms (Cache-Treffer)`);
+  },
+};
+
+// ---------------------------------------------------------------------------
+//  R6 — Parallel-Queries (mehrere unabhaengige Abfragen)
+// ---------------------------------------------------------------------------
+async function runR6(id: string, label: string, parallel: boolean): Promise<RunResult> {
+  const m = await measure(`/api/read/r6?parallel=${parallel}`, { method: 'GET' });
+  const env = JSON.parse(m.bodyText) as BenchmarkEnvelope;
+  return toRunResult(id, label, 'read', env.rowsProcessed, { ...m, serverMillis: env.serverMillis }, env.note);
+}
+
+const r6SeqStage: Stage = {
+  id: 'r6-seq',
+  label: 'R6 — Queries seriell',
+  track: 'read',
+  description:
+    'Ein „Dashboard" fuehrt 8 unabhaengige Abfragen nacheinander aus. Die Serverzeit ist die Summe aller ' +
+    'Abfragen — der Referenzwert fuer die parallele Variante.',
+  run: () => runR6('r6-seq', r6SeqStage.label, false),
+};
+
+const r6ParStage: Stage = {
+  id: 'r6-par',
+  label: 'R6 — Queries parallel',
+  track: 'read',
+  description:
+    'Dieselben 8 unabhaengigen Abfragen, aber gleichzeitig ueber Virtual Threads. Die Serverzeit sinkt Richtung ' +
+    'der langsamsten Einzelabfrage statt der Summe — deutlich schneller als R6 seriell.',
+  run: () => runR6('r6-par', r6ParStage.label, true),
+};
+
 /** Alle registrierten Stufen. Reihenfolge = Anzeigereihenfolge im Dashboard. */
 export const STAGES: Stage[] = [
   w0Stage,
@@ -399,5 +449,8 @@ export const STAGES: Stage[] = [
   r2KeysetStage,
   r3Stage,
   r4Stage,
+  r5Stage,
+  r6SeqStage,
+  r6ParStage,
   seedStage,
 ];
